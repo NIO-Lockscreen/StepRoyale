@@ -18,3 +18,26 @@ View your app in AI Studio: https://ai.studio/apps/75a7e4fd-c297-4411-a6a8-a2851
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+---
+
+## STRIDE — the prototype
+
+This repo now contains a working, mobile-first **React/TS prototype** of STRIDE (the idle
+walking-tycoon game). The core loop runs in the browser with simulated steps:
+
+```bash
+npm install
+npm run dev     # play it — steps simulate automatically
+npm test        # run the invariant proof (steps always out-earn idle)
+```
+
+**Highlights**
+- The design promise — *steps are never a worse way to earn than idle* — is a **hard,
+  tested invariant** in `game/economy.ts`, not just a tuning value. See `npm test`.
+- **Freemium**: a one-time "STRIDE Pro" unlock (cosmetics/convenience only) in
+  `game/iap.ts` / `components/Store.tsx`.
+- **"Unlock everything to test"**: `Debug → 🔓 Unlock Everything` opens every gate.
+- Architected to port to native iOS via the `StepProvider` seam (HealthKit) + Capacitor.
+
+📋 Full design-doc review and scorecard: **[DESIGN_REVIEW.md](DESIGN_REVIEW.md)**.
