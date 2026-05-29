@@ -9,7 +9,9 @@
     "preview": "vite preview --port=3000 --host=0.0.0.0",
     "lint": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "cap:sync": "cap sync ios",
+    "ios": "cap open ios"
   },
   "dependencies": {
     "react": "^19.2.0",
