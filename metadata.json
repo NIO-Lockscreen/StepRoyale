@@ -1,6 +1,5 @@
 {
-  "name": "",
-  "description": "",
-  "requestFramePermissions": [],
-  "majorCapabilities": []
+  "name": "STRIDE - The Walking Tycoon",
+  "description": "An idle tycoon game where your real footsteps are the currency. Walk in real life to earn coins, then spend them to build a business empire, buy luxury items, and climb the ranks from broke to billionaire.",
+  "requestFramePermissions": []
 }
