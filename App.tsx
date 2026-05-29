@@ -7,18 +7,19 @@ import { Debug } from './components/Debug';
 
 type Tab = 'home' | 'empire' | 'showroom' | 'store' | 'debug';
 
-const TABS: { id: Tab; label: string; icon: string; devOnly?: boolean }[] = [
+const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'home', label: 'Home', icon: '🏠' },
   { id: 'empire', label: 'Empire', icon: '🏢' },
   { id: 'showroom', label: 'Showroom', icon: '💎' },
   { id: 'store', label: 'Pro', icon: '👑' },
-  { id: 'debug', label: 'Debug', icon: '🐞', devOnly: true },
+  { id: 'debug', label: 'Debug', icon: '🐞' },
 ];
 
 export function App() {
   const [tab, setTab] = useState<Tab>('home');
-  // import.meta.env.DEV is the web analog of #if DEBUG — Debug tab hidden in prod builds.
-  const tabs = TABS.filter((t) => !t.devOnly || import.meta.env.DEV);
+  // Prototype: the Debug tab (with "Unlock Everything") stays available so the deployed
+  // Vercel build is fully testable on the live URL. Guard or remove before public launch.
+  const tabs = TABS;
 
   return (
     <div className="app">

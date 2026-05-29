@@ -41,3 +41,16 @@ npm test        # run the invariant proof (steps always out-earn idle)
 - Architected to port to native iOS via the `StepProvider` seam (HealthKit) + Capacitor.
 
 📋 Full design-doc review and scorecard: **[DESIGN_REVIEW.md](DESIGN_REVIEW.md)**.
+
+## Deploy to Vercel
+
+The prototype is a static Vite build, so Vercel deploys it as-is:
+
+1. Import the repo in Vercel — it auto-detects **Vite** via `vercel.json`.
+2. Build command `npm run build`, output `dist` — both preconfigured.
+3. No environment variables required.
+
+The deployed site is **mobile-formatted** (safe-area-aware phone-width column that
+centers on desktop, dynamic viewport height) and **fully testable**: the **Debug** tab is
+intentionally left enabled so you can flip 🔓 **Unlock Everything** on the live URL.
+Guard or remove it before a public launch.
