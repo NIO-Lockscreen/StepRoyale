@@ -32,13 +32,19 @@ npm run dev     # play it — steps simulate automatically
 npm test        # run the invariant proof (steps always out-earn idle)
 ```
 
+**Where things live** (compact on purpose — cheap to read, easy to edit):
+- `game/engine.ts` — **everything**: tuning, types, data, economy, persistence, the store
+  + game loop, and the freemium gate. The invariant (`idlePerHour`) is the load-bearing bit.
+- `game/engine.test.ts` — the proof that *steps are never a worse way to earn than idle*.
+- `game/health.ts` — the real HealthKit step source (lazy-loaded on iOS only).
+- `App.tsx` — the entire UI (all screens + the tycoon-themed shell).
+
 **Highlights**
-- The design promise — *steps are never a worse way to earn than idle* — is a **hard,
-  tested invariant** in `game/economy.ts`, not just a tuning value. See `npm test`.
-- **Freemium**: a one-time "STRIDE Pro" unlock (cosmetics/convenience only) in
-  `game/iap.ts` / `components/Store.tsx`.
+- The design promise is a **hard, tested invariant** in `game/engine.ts`, not a tuning
+  value — `idlePerHour` clamps idle below walking. See `npm test`.
+- **Freemium**: a one-time "STRIDE Pro" unlock (cosmetics/convenience only); `store.buyPro()`.
 - **"Unlock everything to test"**: `Debug → 🔓 Unlock Everything` opens every gate.
-- Architected to port to native iOS via the `StepProvider` seam (HealthKit) + Capacitor.
+- Architected to port to native iOS via the `StepSource` seam (HealthKit) + Capacitor.
 
 📋 Full design-doc review and scorecard: **[DESIGN_REVIEW.md](DESIGN_REVIEW.md)**.
 

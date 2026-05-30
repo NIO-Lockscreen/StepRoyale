@@ -15,9 +15,13 @@ app (HealthKit, Swift, StoreKit). Those don't match, so a decision was forced:
   needs. A pure-Swift app can't even build in this environment, and rebuilding from
   scratch would throw away your AI Studio work.
 - It's architected so the **iOS ship is a swap, not a rewrite**: all step input goes
-  through one `StepProvider` seam (`game/steps.ts`). Wrap with **Capacitor** for the App
-  Store and implement a `HealthKitStepProvider` against that interface — nothing else
-  changes. Freemium is behind one `IAP` facade you can repoint at StoreKit/RevenueCat.
+  through one `StepSource` seam in `game/engine.ts`. Wrap with **Capacitor** for the App
+  Store and implement `HealthSteps` (already in `game/health.ts`) — nothing else changes.
+  Freemium is one method (`store.buyPro()`) you can repoint at StoreKit/RevenueCat.
+
+> **Layout note:** the code is intentionally consolidated for cheap AI-assisted editing —
+> all logic + state in `game/engine.ts`, all UI in `App.tsx`, native steps in
+> `game/health.ts`, the proof in `game/engine.test.ts`. Fewer files, fewer tokens, same game.
 
 If you'd rather I redo this as literal native Swift, say so — all the game design and
 economy math below ports directly.
@@ -28,7 +32,7 @@ economy math below ports directly.
 
 The doc treats this as a **tuning goal** (§6 capacity throttle). That's too weak — tuning
 drifts, and one aggressive upgrade or empire curve silently breaks the whole pitch. So I
-promoted it to a **hard, tested invariant** in `game/economy.ts`:
+promoted it to a **hard, tested invariant** in `game/engine.ts` (`idlePerHour`):
 
 - Idle income/hour is **always** clamped to `IDLE_VS_STEP_CEILING` (0.5) × the coins
   you'd earn **actively walking that same hour**, under the **same** combo/upgrade/event
@@ -36,7 +40,7 @@ promoted it to a **hard, tested invariant** in `game/economy.ts`:
 - Because the clamp references the *same* multipliers that boost walking, no upgrade path,
   prestige stack, event, or empire size can ever invert the order. Walking is always
   **≥ 2× more efficient** than pure idle, by construction.
-- `game/economy.test.ts` **proves it**: it sweeps combos, 1000× upgrades, events, and a
+- `game/engine.test.ts` **proves it**: it sweeps combos, 1000× upgrades, events, and a
   one-billion-coin/hour empire and asserts idle stays strictly below walking. Run
   `npm test`. This is proof, not vibes — and it's stronger than the doc, which could
   still be broken by tuning.
@@ -46,7 +50,7 @@ promoted it to a **hard, tested invariant** in `game/economy.ts`:
 ### 2. Freemium with a prototype "buy to unlock" (your first IAP)
 
 Implemented per the doc's recommended model (§14A): one **one-time, non-consumable
-"STRIDE Pro"** unlock — no subscription (`game/iap.ts`, `components/Store.tsx`). Every
+"STRIDE Pro"** unlock — no subscription (`store.buyPro()` + the Pro screen in `App.tsx`). Every
 Pro perk is **convenience or cosmetic only** (extra wager slots, streak-freeze stash,
 showroom themes, flex-card frames, a 2nd club). **Nothing Pro buys earns coins or rank**
 — that protects the "fair flex" promise (§11), which *is* the product. The purchase flow
@@ -54,7 +58,7 @@ is simulated for the prototype and isolated behind one facade for easy StoreKit 
 
 ### 3. "Let me unlock everything to test."
 
-`Debug → 🔓 Unlock Everything` (`components/Debug.tsx`). One toggle opens every gate with
+`Debug → 🔓 Unlock Everything` (the Debug screen in `App.tsx`). One toggle opens every gate with
 no purchase. `gameStore.isProUnlocked()` checks it first, so all Pro perks read as owned.
 The Debug tab only appears in dev builds (`import.meta.env.DEV` — the web analog of
 `#if DEBUG`). The Debug screen also has +coins, +steps, force-rollover, a live invariant
@@ -64,13 +68,13 @@ readout, and reset.
 
 | Doc system | Status | Where |
 |---|---|---|
-| Steps → live coin conversion (§4.1) | ✅ ticking live | `SimulatedStepProvider` + loop in `store.ts` |
+| Steps → live coin conversion (§4.1) | ✅ ticking live | `SimSteps` + the store loop in `engine.ts` |
 | Adaptive daily goal (§4.2) | ✅ | `economy.adaptiveGoal` (110% of 7-day median, 4k–15k) |
 | Combo + multiplier (§4.2) | ✅ | `economy.comboMultiplier` (+0.1/day, cap ×3.0) |
 | Empire + capacity throttle (§6) | ✅ | `empire.ts` + `selectors.capacity` (clamp 0.10–1.25) |
 | **Idle ≤ steps guarantee** | ✅ **enforced + tested** | the headline |
 | Streak + Streak Freeze (§4.3) | ✅ modeled | `store.rolloverInto` (freeze protects combo) |
-| Showroom / lifestyle ladder (§7) | ✅ data + UI | `showroom.ts`, `components/Showroom.tsx` (tiers, signature trophies, "next flex" tease) |
+| Showroom / lifestyle ladder (§7) | ✅ data + UI | `engine.ts` (`ITEMS`/`TIERS`) + Showroom screen in `App.tsx` (tiers, signature trophies, "next flex" tease) |
 | Endowed progress (§12) | ✅ | 500 seed coins, empire not at floor on install |
 | Local-first save (§15) | ✅ | `persistence.ts` (localStorage, versioned) |
 | Wager + Mercy Near-Miss (§4.4) | ⛔ deferred | see push-back below |

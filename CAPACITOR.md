@@ -9,15 +9,12 @@ HealthKit. The architecture is already prepared for this — these steps are the
 
 ## What's already wired
 
-- **`game/steps.ts`** — the `StepProvider` seam. The whole game depends only on this
-  interface, never on a specific step source.
-- **`game/health/healthkit.ts`** — a real `HealthKitStepProvider` (polls HealthKit's
-  cumulative step total and emits deltas). Dynamically imported, so the web build never
+- **`game/engine.ts`** — the `StepSource` seam (`interface StepSource`, `SimSteps`), and
+  `boot()`, which auto-selects the source: HealthKit inside the iOS shell, simulator on web.
+  Also where freemium lives (`store.buyPro()` — repoint at StoreKit/RevenueCat for iOS).
+- **`game/health.ts`** — the real `HealthSteps` source (polls HealthKit's cumulative step
+  total and emits deltas). Lazy-loaded via a variable specifier, so the web build never
   pulls native code.
-- **`game/bootstrap.ts`** — auto-selects the HealthKit provider inside the iOS shell and
-  the simulator on web. No code changes needed to switch.
-- **`game/iap.ts`** — freemium behind one facade; repoint `purchase()`/`restore()` at
-  StoreKit or RevenueCat for real in-app purchase.
 - **`capacitor.config.ts`** — appId `com.stride.app`, webDir `dist`.
 
 ## One-time setup (on a Mac)
@@ -56,7 +53,7 @@ npm run build && npm run cap:sync
 ## Notes
 
 - If you pick a different HealthKit plugin, the only file to touch is
-  `game/health/healthkit.ts` — confirm the authorization + query calls match its API.
+  `game/health.ts` — confirm the authorization + query calls match its API.
   The polling/delta logic around them is plugin-agnostic.
 - Background step capture is free: HealthKit retroactively reports steps taken while the
   app was closed, so the "idle while you were away" mechanic needs no background mode for
