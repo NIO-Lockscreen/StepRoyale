@@ -1,6 +1,6 @@
 /* Dependency-free dopamine layer: canvas confetti + coin burst, a Web-Audio chime,
    and haptic taps. No libraries — keeps the bundle tiny and the build trivial.
-   Driven by `bus.celebrate(...)`; wired up once in App via initFx(). */
+   Driven by `bus.celebrate(...)`; the App's Effects component forwards those events. */
 
 type Kind = 'win' | 'buy' | 'mega';
 
@@ -11,6 +11,7 @@ let canvas: HTMLCanvasElement | null = null;
 let ctx: CanvasRenderingContext2D | null = null;
 let parts: P[] = [];
 let raf = 0;
+let lastT = 0;            // wall-clock of previous frame, for frame-rate-independent motion
 let prefersReduced = false;
 
 function ensureCanvas() {
@@ -54,19 +55,24 @@ function spawn(kind: Kind, ox: number, oy: number) {
       life: 1,
     });
   }
-  if (parts.length && !raf) raf = requestAnimationFrame(tick);
+  if (parts.length && !raf) { lastT = performance.now(); raf = requestAnimationFrame(tick); }
 }
 
-function tick() {
+function tick(now: number) {
   if (!ctx || !canvas) { raf = 0; return; }
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // Frame-rate-independent: scale motion by elapsed time, normalized to 60fps "frames".
+  // Clamp so a backgrounded tab returning doesn't teleport particles in one giant step.
+  const f = Math.min((now - lastT) / 16.667, 3);
+  lastT = now;
+  // Clear in CSS-pixel space (the context carries a dpr scale transform from resize()).
+  ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
   parts = parts.filter(p => p.life > 0);
   for (const p of parts) {
-    p.vy += 0.35;            // gravity
-    p.vx *= 0.99;
-    p.x += p.vx; p.y += p.vy;
-    p.rot += p.vr;
-    p.life -= 0.012;
+    p.vy += 0.35 * f;        // gravity
+    p.vx *= Math.pow(0.99, f);
+    p.x += p.vx * f; p.y += p.vy * f;
+    p.rot += p.vr * f;
+    p.life -= 0.012 * f;
     ctx.save();
     ctx.globalAlpha = Math.max(0, p.life);
     ctx.translate(p.x, p.y);
@@ -85,6 +91,7 @@ let actx: AudioContext | null = null;
 function blip(kind: Kind) {
   try {
     actx ??= new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();   // unsuspend after the first user gesture
     const notes = kind === 'mega' ? [523, 659, 784, 1047] : kind === 'win' ? [523, 784] : [659];
     notes.forEach((f, i) => {
       const o = actx!.createOscillator(), g = actx!.createGain();
