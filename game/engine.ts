@@ -5,7 +5,9 @@ import { useSyncExternalStore } from 'react';
 
    THE RULE (load-bearing): idle income is always clamped below what you'd earn
    walking that same hour, under the same multipliers. Walking can never be the
-   worse way to earn. Enforced in idlePerHour(); proven in engine.test.ts.
+   worse way to earn. Every earning boost (combo, upgrades, legacy, events) lifts
+   walking too, so the clamp can't be inverted. Enforced in idlePerHour();
+   proven in engine.test.ts.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 // ── Tuning (all illustrative knobs) ──────────────────────────────────────────
@@ -15,21 +17,36 @@ export const T = {
   idleCeil: 0.5,        // idle/hr ≤ idleCeil × walk/hr. Must be <1 ⇒ walking always wins
   goalLo: 4000,
   goalHi: 15000,
+  offlineCapH: 8,       // idle while away is capped → a reason to come back
+  prestigeMin: 1_000_000, // can Retire once net worth hits Rich
 };
+export const WAGER_TIERS = [
+  { over: 0.5, mult: 1.8, label: '+50%' },
+  { over: 1.0, mult: 2.5, label: '+100%' },
+  { over: 2.0, mult: 4.0, label: '+200%' },
+];
+export const WAGER_MERCY = 0.05;   // finish within 5% of target → stake refunded
+export const WAGER_MAX = 0.30;     // never stake more than 30% of balance
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export type Tier = 'Broke' | 'Comfortable' | 'Wealthy' | 'Rich' | 'Ultra' | 'Billionaire';
 export type Perk = 'Extra Wager slots' | 'Stash of Streak Freezes' | 'Showroom themes' | 'Flex Card frames' | 'Second Club';
 export interface Asset { id: string; name: string; emoji: string; out: number; cost: number; grow: number }
+export interface Upgrade { id: string; name: string; emoji: string; boost: number; cost: number; grow: number }
 export interface Item { id: string; name: string; emoji: string; tier: Tier; cost: number; sig?: boolean }
+export interface Wager { stake: number; target: number; mult: number; day: string }
 
 export interface State {
   v: number;
-  coins: number; upgradeMult: number; eventMult: number;
+  coins: number; eventMult: number;
   stepsToday: number; stepsYest: number; median7: number;
   combo: number; streak: number; freezes: number; day: string;
-  assets: Record<string, number>;   // assetId → owned count
+  assets: Record<string, number>;    // assetId → owned count
+  upgrades: Record<string, number>;  // upgradeId → level
   items: string[];                   // owned item ids
+  wager: Wager | null; wagerWins: number;
+  legacy: number; gen: number;       // prestige: cumulative retired net worth + generation
+  achieved: string[];
   lastMs: number;
   pro: boolean; debugUnlockAll: boolean;
 }
@@ -43,6 +60,14 @@ export const ASSETS: Asset[] = [
   { id: 'realestate', name: 'Real-Estate Fund', emoji: '🏙️', out: 16_000,  cost: 950_000,     grow: 1.16 },
   { id: 'hedgefund',  name: 'Hedge Fund',       emoji: '📈',  out: 120_000, cost: 12_000_000,  grow: 1.17 },
   { id: 'space',      name: 'Space Company',    emoji: '🚀',  out: 900_000, cost: 150_000_000, grow: 1.18 },
+];
+
+// Permanent earning multipliers (boost both walking AND idle in lockstep → invariant-safe).
+export const UPGRADES: Upgrade[] = [
+  { id: 'shoes', name: 'Better Shoes',   emoji: '👟', boost: 0.5, cost: 500,         grow: 1.5 },
+  { id: 'coach', name: 'Personal Coach', emoji: '🏋️', boost: 3,   cost: 30_000,      grow: 1.55 },
+  { id: 'charm', name: 'Lucky Charm',    emoji: '📿', boost: 15,  cost: 2_000_000,   grow: 1.6 },
+  { id: 'bio',   name: 'Bio-Hacks',      emoji: '🧬', boost: 75,  cost: 120_000_000, grow: 1.65 },
 ];
 
 export const ITEMS: Item[] = [
@@ -74,21 +99,39 @@ export const TIER_BLURB: Record<Tier, string> = {
   Rich: 'the first real flex ⭐', Ultra: 'absurd, aspirational', Billionaire: 'the endgame meme flex',
 };
 
+const ACHIEVEMENTS: { id: string; name: string; when: (s: State) => boolean; reward?: (s: State) => State }[] = [
+  { id: 'firstAsset', name: 'First Business',     when: s => Object.values(s.assets).some(v => v > 0), reward: s => ({ ...s, coins: s.coins + 1000 }) },
+  { id: 'firstItem',  name: 'First Flex',         when: s => s.items.length > 0 },
+  { id: 'firstUp',    name: 'Self-Improvement',   when: s => Object.values(s.upgrades).some(v => v > 0) },
+  { id: 'combo10',    name: 'On a Roll (×2)',     when: s => s.combo >= 10 },
+  { id: 'wagerWin',   name: 'House Always Wins',  when: s => s.wagerWins >= 1 },
+  { id: 'streak7',    name: 'Week Warrior',       when: s => s.streak >= 7, reward: s => ({ ...s, freezes: s.freezes + 1 }) },
+  { id: 'rich',       name: 'Rolex Money',        when: s => netWorth(s) >= 1_000_000 },
+  { id: 'retire',     name: 'Retired Early',      when: s => s.gen >= 1 },
+  { id: 'billionaire',name: 'Ten Figures',        when: s => netWorth(s) >= 1_000_000_000 },
+];
+
 // ── Pure economy (the invariant lives here) ──────────────────────────────────
 const clamp = (x: number, lo: number, hi: number) => Math.min(Math.max(x, lo), hi);
 
 export const goal = (s: State) => Math.round(clamp(s.median7 * 1.1, T.goalLo, T.goalHi));
 export const comboMult = (combo: number) => Math.min(1 + 0.1 * combo, 3);
-export const coinsForSteps = (steps: number, s: State) => steps * T.baseRate * comboMult(s.combo) * s.upgradeMult * s.eventMult;
+export const upgradeFactor = (s: State) => 1 + UPGRADES.reduce((n, u) => n + (s.upgrades[u.id] || 0) * u.boost, 0);
+export const legacyMult = (s: State) => 1 + Math.sqrt(s.legacy / T.prestigeMin);
+// One multiplier chain used by BOTH step and idle yardsticks ⇒ they move together.
+export const earnMult = (s: State) => comboMult(s.combo) * s.eventMult * upgradeFactor(s) * legacyMult(s);
+export const coinsForSteps = (steps: number, s: State) => steps * T.baseRate * earnMult(s);
 export const walkPerHour = (s: State) => coinsForSteps(T.cadenceSpm * 60, s);                 // the yardstick
 export const capacity = (s: State) => clamp(s.stepsYest / goal(s), 0.1, 1.25);                // §6: empire runs at last walk
 export const assetCost = (a: Asset, s: State) => a.cost * a.grow ** (s.assets[a.id] || 0);
+export const upgradeCost = (u: Upgrade, s: State) => u.cost * u.grow ** (s.upgrades[u.id] || 0);
 export const rawIdle = (s: State) => ASSETS.reduce((n, a) => n + (s.assets[a.id] || 0) * a.out, 0);
 export const idlePerHour = (s: State) => Math.min(rawIdle(s) * capacity(s), T.idleCeil * walkPerHour(s)); // THE CLAMP
 export const invariantOk = (s: State) => idlePerHour(s) < walkPerHour(s);                     // strict ⇒ a step is always worth more
 export const netWorth = (s: State) => s.coins + ITEMS.filter(i => s.items.includes(i.id)).reduce((n, i) => n + i.cost, 0);
 export const tierOf = (s: State): Tier => { let t: Tier = 'Broke'; for (const x of TIERS) if (netWorth(s) >= TIER_MIN[x]) t = x; return t; };
 export const nextItem = (s: State) => { const left = ITEMS.filter(i => !s.items.includes(i.id)); return left.sort((a, b) => a.cost - b.cost).find(i => i.cost > s.coins) ?? left[0]; };
+export const canRetire = (s: State) => netWorth(s) >= T.prestigeMin;
 
 const U = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi'];
 export function fmt(n: number): string {
@@ -100,17 +143,32 @@ export function fmt(n: number): string {
 }
 export const pct = (x: number) => Math.round(x * 100) + '%';
 
+// ── Ephemeral UI event bus (toasts / coin floaters / offline modal — never persisted) ──
+export type BusEvent =
+  | { type: 'toast'; msg: string; kind: 'good' | 'bad' | 'info' }
+  | { type: 'gain'; amount: number }
+  | { type: 'offline'; coins: number; hours: number };
+const busL = new Set<(e: BusEvent) => void>();
+export const bus = {
+  on: (f: (e: BusEvent) => void) => { busL.add(f); return () => { busL.delete(f); }; },
+  emit: (e: BusEvent) => busL.forEach(f => f(e)),
+  toast: (msg: string, kind: 'good' | 'bad' | 'info' = 'info') => bus.emit({ type: 'toast', msg, kind }),
+};
+
 // ── Persistence (local-first, §15; guarded so node/tests don't touch localStorage) ──
-const KEY = 'stride.v1';
+const VER = 2;
+const KEY = 'stride.v2';
 const hasLS = typeof localStorage !== 'undefined';
 export const today = (d = new Date()) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 export const initial = (): State => ({
-  v: 1, coins: 500, upgradeMult: 1, eventMult: 1,         // §12: seed coins so first buy is instant
+  v: VER, coins: 500, eventMult: 1,                       // §12: seed coins so first buy is instant
   stepsToday: 0, stepsYest: 6000, median7: 4000,          // stepsYest>0 ⇒ empire isn't at the floor on install
   combo: 0, streak: 0, freezes: 1, day: today(),
-  assets: {}, items: [], lastMs: Date.now(), pro: false, debugUnlockAll: false,
+  assets: {}, upgrades: {}, items: [],
+  wager: null, wagerWins: 0, legacy: 0, gen: 0, achieved: [],
+  lastMs: Date.now(), pro: false, debugUnlockAll: false,
 });
-const load = (): State | null => { if (!hasLS) return null; try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); return s?.v === 1 ? s : null; } catch { return null; } };
+const load = (): State | null => { if (!hasLS) return null; try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); return s?.v === VER ? s : null; } catch { return null; } };
 const save = (s: State) => { if (hasLS) try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* full/disabled */ } };
 
 // ── Step sources (the seam; swap-only for iOS — see boot()) ───────────────────
@@ -122,14 +180,25 @@ export class SimSteps implements StepSource {
   stop() { clearInterval(this.t); this.t = null; }
 }
 
-// Day rollover: bank the goal, advance/reset combo & streak (a freeze protects the combo).
-const roll = (s: State, day: string): State => {
-  let { combo, streak, freezes } = s;
-  if (s.stepsToday >= goal(s)) { combo++; streak++; }
-  else if (freezes > 0) freezes--;
-  else combo = 0;
-  return { ...s, combo, streak, freezes, stepsYest: s.stepsToday, stepsToday: 0, day };
-};
+// Day rollover: settle wager, fire streak milestones, advance/reset combo & streak.
+function roll(s: State, day: string): State {
+  const hit = s.stepsToday >= goal(s);
+  let { combo, streak, freezes, coins, wager, wagerWins } = s;
+  if (hit) { combo++; streak++; } else if (freezes > 0) freezes--; else combo = 0;   // a freeze protects the combo
+
+  if (hit) {                                                                          // §4.3 streak milestone drops
+    const ms: Record<number, [number, number]> = { 7: [5_000, 1], 30: [50_000, 1], 100: [500_000, 2], 365: [5_000_000, 3] };
+    const m = ms[streak];
+    if (m) { coins += m[0]; freezes += m[1]; bus.toast(`🔥 ${streak}-day streak! +${fmt(m[0])} & a Freeze`, 'good'); }
+  }
+  if (wager) {                                                                        // §4.4 settle the bet
+    if (s.stepsToday >= wager.target) { const pay = wager.stake * wager.mult; coins += pay; wagerWins++; bus.toast(`🎰 Wager WON! +${fmt(pay)}`, 'good'); }
+    else if (s.stepsToday >= wager.target * (1 - WAGER_MERCY)) { coins += wager.stake; bus.toast('😤 SO close — stake refunded', 'info'); }  // Mercy Near-Miss
+    else bus.toast('🎰 Wager lost — get them tomorrow', 'bad');
+    wager = null;
+  }
+  return { ...s, combo, streak, freezes, coins, wager, wagerWins, stepsYest: s.stepsToday, stepsToday: 0, day };
+}
 
 // ── Store: the single source of truth + the game loop ────────────────────────
 class Store {
@@ -139,7 +208,16 @@ class Store {
 
   get = () => this.s;
   sub = (l: () => void) => { this.ls.add(l); return () => this.ls.delete(l); };
-  private set(p: Partial<State>) { this.s = { ...this.s, ...p }; save(this.s); this.ls.forEach(l => l()); }
+  // Commit + award any newly-earned achievements in the same pass.
+  private set(p: Partial<State>) {
+    let next = { ...this.s, ...p };
+    const won = ACHIEVEMENTS.filter(a => !next.achieved.includes(a.id) && a.when(next));
+    if (won.length) {
+      next = { ...next, achieved: [...next.achieved, ...won.map(a => a.id)] };
+      for (const a of won) { if (a.reward) next = a.reward(next); bus.toast(`🏆 ${a.name}`, 'good'); }
+    }
+    this.s = next; save(next); this.ls.forEach(l => l());
+  }
 
   start() { if (this.loop) return; this.tick(); this.loop = setInterval(() => this.tick(), 1000); }
   private tick() {
@@ -150,9 +228,42 @@ class Store {
     this.s = next; save(next); this.ls.forEach(l => l());
   }
 
-  steps(d: number) { if (d > 0) this.set({ stepsToday: this.s.stepsToday + d, coins: this.s.coins + coinsForSteps(d, this.s) }); }
+  // Credit steps + emit a floating "+X" for juice.
+  steps(d: number) { if (d > 0) { const g = coinsForSteps(d, this.s); this.set({ stepsToday: this.s.stepsToday + d, coins: this.s.coins + g }); bus.emit({ type: 'gain', amount: g }); } }
   buyAsset(id: string) { const a = ASSETS.find(x => x.id === id)!; const c = assetCost(a, this.s); if (this.s.coins >= c) this.set({ coins: this.s.coins - c, assets: { ...this.s.assets, [id]: (this.s.assets[id] || 0) + 1 } }); }
+  buyUpgrade(id: string) { const u = UPGRADES.find(x => x.id === id)!; const c = upgradeCost(u, this.s); if (this.s.coins >= c) this.set({ coins: this.s.coins - c, upgrades: { ...this.s.upgrades, [id]: (this.s.upgrades[id] || 0) + 1 } }); }
   buyItem(id: string) { const i = ITEMS.find(x => x.id === id)!; if (!this.s.items.includes(id) && this.s.coins >= i.cost) this.set({ coins: this.s.coins - i.cost, items: [...this.s.items, id] }); }
+
+  // §4.4 Wager: stake coins (≤30% balance) on hitting a stretch step goal today.
+  placeWager(tier: number, frac: number) {
+    if (this.s.wager) return;
+    const t = WAGER_TIERS[tier];
+    const stake = Math.floor(this.s.coins * Math.min(Math.max(frac, 0), WAGER_MAX));
+    if (stake <= 0) return;
+    const target = Math.round(goal(this.s) * (1 + t.over));
+    this.set({ coins: this.s.coins - stake, wager: { stake, target, mult: t.mult, day: this.s.day } });
+    bus.toast(`Bet ${fmt(stake)} on ${target.toLocaleString()} steps`, 'info');
+  }
+
+  // §9 Prestige: wipe coins/assets/upgrades for a permanent Legacy multiplier; flexes stay forever.
+  retire() {
+    if (!canRetire(this.s)) return;
+    const banked = netWorth(this.s);
+    const base = initial();
+    const newLegacy = this.s.legacy + banked, newGen = this.s.gen + 1;
+    this.set({ ...base, items: this.s.items, streak: this.s.streak, freezes: this.s.freezes,
+      legacy: newLegacy, gen: newGen, wagerWins: this.s.wagerWins, achieved: this.s.achieved, day: this.s.day });
+    bus.toast(`🎖️ Retired! Gen ${newGen} · Legacy ×${legacyMult({ ...base, legacy: newLegacy }).toFixed(2)}`, 'good');
+  }
+
+  // Credit capped offline idle on return; returns the reveal for the "welcome back" modal.
+  takeOffline(): { coins: number; hours: number } | null {
+    const now = Date.now(), gapH = (now - this.s.lastMs) / 3.6e6;
+    if (gapH < 1 / 60) { this.s = { ...this.s, lastMs: now }; return null; }   // <1 min: nothing to reveal
+    const earned = idlePerHour(this.s) * Math.min(gapH, T.offlineCapH);
+    this.set({ coins: this.s.coins + earned, lastMs: now });
+    return earned > 0 ? { coins: earned, hours: gapH } : null;
+  }
 
   // Freemium (§14A): one-time unlock; perks are cosmetic/convenience only. Debug switch opens all gates.
   proUnlocked = () => this.s.debugUnlockAll || this.s.pro;
@@ -162,7 +273,7 @@ class Store {
   // Debug cheats
   give(n: number) { this.set({ coins: this.s.coins + n }); }
   freeze() { this.set({ freezes: this.s.freezes + 1 }); }
-  rollNow() { this.set(roll(this.s, today(new Date(Date.now() + 864e5)))); }
+  rollNow() { const next = roll(this.s, today(new Date(Date.now() + 864e5))); this.set(next); }
   reset() { this.set(initial()); }
 }
 
@@ -174,6 +285,8 @@ export const useGame = () => useSyncExternalStore(store.sub, store.get);
 let booted = false;
 export async function boot() {
   if (booted) return; booted = true;
+  const off = store.takeOffline();
+  if (off) bus.emit({ type: 'offline', coins: off.coins, hours: off.hours });
   const cap = (globalThis as any).Capacitor;
   let src: StepSource = new SimSteps();
   if (cap?.isNativePlatform?.() && cap.getPlatform?.() === 'ios') {
