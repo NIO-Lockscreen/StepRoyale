@@ -37,6 +37,8 @@ npm test        # run the invariant proof (steps always out-earn idle)
   + game loop, and the freemium gate. The invariant (`idlePerHour`) is the load-bearing bit.
 - `game/engine.test.ts` — the proof that *steps are never a worse way to earn than idle*.
 - `game/health.ts` — the real HealthKit step source (lazy-loaded on iOS only).
+- `game/fx.ts` — the dopamine layer: dependency-free canvas confetti, Web-Audio chime,
+  and haptics. Driven by `bus.celebrate(...)` from the win moments in `engine.ts`.
 - `App.tsx` — the entire UI (all screens + the tycoon-themed shell).
 
 **Highlights**

@@ -181,12 +181,14 @@ export const pct = (x: number) => Math.round(x * 100) + '%';
 export type BusEvent =
   | { type: 'toast'; msg: string; kind: 'good' | 'bad' | 'info' }
   | { type: 'gain'; amount: number }
-  | { type: 'offline'; coins: number; hours: number };
+  | { type: 'offline'; coins: number; hours: number }
+  | { type: 'celebrate'; kind: 'win' | 'buy' | 'mega'; x?: number; y?: number };
 const busL = new Set<(e: BusEvent) => void>();
 export const bus = {
   on: (f: (e: BusEvent) => void) => { busL.add(f); return () => { busL.delete(f); }; },
   emit: (e: BusEvent) => busL.forEach(f => f(e)),
   toast: (msg: string, kind: 'good' | 'bad' | 'info' = 'info') => bus.emit({ type: 'toast', msg, kind }),
+  celebrate: (kind: 'win' | 'buy' | 'mega' = 'win', x?: number, y?: number) => bus.emit({ type: 'celebrate', kind, x, y }),
 };
 
 // ── Persistence (local-first, §15; guarded so node/tests don't touch localStorage) ──
@@ -218,15 +220,16 @@ export class SimSteps implements StepSource {
 function roll(s: State, day: string): State {
   const hit = s.stepsToday >= goal(s);
   let { combo, streak, freezes, coins, wager, wagerWins } = s;
-  if (hit) { combo++; streak++; } else if (freezes > 0) freezes--; else combo = 0;   // a freeze protects the combo
+  if (hit) { combo++; streak++; bus.toast(`✓ Goal hit! Combo ×${comboMult(combo).toFixed(1)}`, 'good'); bus.celebrate('win'); }
+  else if (freezes > 0) freezes--; else combo = 0;   // a freeze protects the combo
 
   if (hit) {                                                                          // §4.3 streak milestone drops
     const ms: Record<number, [number, number]> = { 7: [5_000, 1], 30: [50_000, 1], 100: [500_000, 2], 365: [5_000_000, 3] };
     const m = ms[streak];
-    if (m) { coins += m[0]; freezes += m[1]; bus.toast(`🔥 ${streak}-day streak! +${fmt(m[0])} & a Freeze`, 'good'); }
+    if (m) { coins += m[0]; freezes += m[1]; bus.toast(`🔥 ${streak}-day streak! +${fmt(m[0])} & a Freeze`, 'good'); bus.celebrate('mega'); }
   }
   if (wager) {                                                                        // §4.4 settle the bet
-    if (s.stepsToday >= wager.target) { const pay = wager.stake * wager.mult; coins += pay; wagerWins++; bus.toast(`🎰 Wager WON! +${fmt(pay)}`, 'good'); }
+    if (s.stepsToday >= wager.target) { const pay = wager.stake * wager.mult; coins += pay; wagerWins++; bus.toast(`🎰 Wager WON! +${fmt(pay)}`, 'good'); bus.celebrate('mega'); }
     else if (s.stepsToday >= wager.target * (1 - WAGER_MERCY)) { coins += wager.stake; bus.toast('😤 SO close — stake refunded', 'info'); }  // Mercy Near-Miss
     else bus.toast('🎰 Wager lost — get them tomorrow', 'bad');
     wager = null;
@@ -250,6 +253,7 @@ class Store {
     if (won.length) {
       next = { ...next, achieved: [...next.achieved, ...won.map(a => a.id)] };
       for (const a of won) { if (a.reward) next = a.reward(next); bus.toast(`🏆 ${a.name}`, 'good'); }
+      bus.celebrate('mega');
     }
     this.s = next; save(next); this.ls.forEach(l => l());
   }
@@ -279,9 +283,9 @@ class Store {
     this.set({ stepsToday: this.s.stepsToday + accept, lifeSteps: this.s.lifeSteps + accept, coins: this.s.coins + g });
     bus.emit({ type: 'gain', amount: g });
   }
-  buyAsset(id: string) { const a = ASSETS.find(x => x.id === id)!; const c = assetCost(a, this.s); if (this.s.coins >= c) this.set({ coins: this.s.coins - c, assets: { ...this.s.assets, [id]: (this.s.assets[id] || 0) + 1 } }); }
-  buyUpgrade(id: string) { const u = UPGRADES.find(x => x.id === id)!; const c = upgradeCost(u, this.s); if (this.s.coins >= c) this.set({ coins: this.s.coins - c, upgrades: { ...this.s.upgrades, [id]: (this.s.upgrades[id] || 0) + 1 } }); }
-  buyItem(id: string) { const i = ITEMS.find(x => x.id === id)!; if (!this.s.items.includes(id) && this.s.coins >= i.cost) this.set({ coins: this.s.coins - i.cost, items: [...this.s.items, id] }); }
+  buyAsset(id: string) { const a = ASSETS.find(x => x.id === id)!; const c = assetCost(a, this.s); if (this.s.coins >= c) { this.set({ coins: this.s.coins - c, assets: { ...this.s.assets, [id]: (this.s.assets[id] || 0) + 1 } }); bus.celebrate('buy'); } }
+  buyUpgrade(id: string) { const u = UPGRADES.find(x => x.id === id)!; const c = upgradeCost(u, this.s); if (this.s.coins >= c) { this.set({ coins: this.s.coins - c, upgrades: { ...this.s.upgrades, [id]: (this.s.upgrades[id] || 0) + 1 } }); bus.celebrate('buy'); } }
+  buyItem(id: string) { const i = ITEMS.find(x => x.id === id)!; if (!this.s.items.includes(id) && this.s.coins >= i.cost) { this.set({ coins: this.s.coins - i.cost, items: [...this.s.items, id] }); bus.toast(`${i.emoji} ${i.name} acquired!`, 'good'); bus.celebrate(i.sig ? 'mega' : 'win'); } }
 
   // §4.4 Wager: stake coins (≤30% balance) on hitting a stretch step goal today.
   placeWager(tier: number, frac: number) {
@@ -303,6 +307,7 @@ class Store {
     this.set({ ...base, items: this.s.items, streak: this.s.streak, freezes: this.s.freezes, lifeSteps: this.s.lifeSteps,
       firstMs: this.s.firstMs, legacy: newLegacy, gen: newGen, wagerWins: this.s.wagerWins, achieved: this.s.achieved, day: this.s.day });
     bus.toast(`🎖️ Retired! Gen ${newGen} · Legacy ×${legacyMult({ ...base, legacy: newLegacy }).toFixed(2)}`, 'good');
+    bus.celebrate('mega');
   }
 
   // On return: settle offline idle (fuel- and time-capped) and reveal it for the modal.

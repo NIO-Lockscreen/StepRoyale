@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { celebrate as fxCelebrate, setSound, getSound } from './game/fx';
 import {
   store, useGame, bus, type BusEvent,
   ASSETS, UPGRADES, ITEMS, PERKS, TIERS, TIER_BLURB, WAGER_TIERS, WAGER_MAX, T,
@@ -224,6 +225,10 @@ function More() {
         <button className="btn" disabled={!code} onClick={() => bus.toast(store.importSave(code) ? 'Save restored' : 'Invalid code', store.importSave(code) ? 'good' : 'bad')}>Restore</button>
       </Card>
 
+      <Card title="⚙️ Settings">
+        <label className="toggle"><input type="checkbox" defaultChecked={getSound()} onChange={e => setSound(e.target.checked)} /><span>🔊 Sound effects</span></label>
+      </Card>
+
       <Card title="🐞 Debug / Test">
         <label className="toggle"><input type="checkbox" checked={s.debugUnlockAll} onChange={e => store.unlockAll(e.target.checked)} /><span>🔓 Unlock Everything</span></label>
         <div className="btn-row">
@@ -250,6 +255,7 @@ function Effects() {
     if (e.type === 'toast') { const id = Date.now() + Math.random(); setToasts(t => [...t, { id, msg: e.msg, kind: e.kind }]); setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 2600); }
     if (e.type === 'gain') { const now = Date.now(); if (now - lastFloat.current < 600) return; lastFloat.current = now; const id = now + Math.random(); setFloats(f => [...f, { id, amount: e.amount }]); setTimeout(() => setFloats(f => f.filter(x => x.id !== id)), 1100); }
     if (e.type === 'offline') setOffline({ coins: e.coins, hours: e.hours });
+    if (e.type === 'celebrate') fxCelebrate(e.kind, e.x, e.y);
   }), []);
 
   return (
@@ -258,11 +264,11 @@ function Effects() {
       <div className="floats">{floats.map(f => <div key={f.id} className="float">+{fmt(f.amount)}</div>)}</div>
       {offline && (
         <div className="modal-wrap" onClick={() => setOffline(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-emoji">💰</div>
+          <div className="modal pop" onClick={e => e.stopPropagation()}>
+            <div className="modal-emoji bob">💰</div>
             <h2>Welcome back!</h2>
             <p>Your empire earned <strong className="gold">{fmt(offline.coins)}</strong> from yesterday's step-fuel while you were away{offline.hours >= 8 && ' (capped at 8h — walk to refuel!)'}.</p>
-            <button className="btn btn-primary" onClick={() => setOffline(null)}>Collect</button>
+            <button className="btn btn-primary" onClick={() => { fxCelebrate('win'); setOffline(null); }}>Collect 🎉</button>
           </div>
         </div>
       )}
