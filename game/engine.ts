@@ -3,21 +3,28 @@ import { useSyncExternalStore } from 'react';
 /* ═══════════════════════════════════════════════════════════════════════════
    STRIDE engine — ALL game logic + state in one file.
 
-   THE RULE (load-bearing): idle income is always clamped below what you'd earn
-   walking that same hour, under the same multipliers. Walking can never be the
-   worse way to earn. Every earning boost (combo, upgrades, legacy, events) lifts
-   walking too, so the clamp can't be inverted. Enforced in idlePerHour();
-   proven in engine.test.ts.
+   THE PROMISE (load-bearing, now PER-DAY not just per-hour):
+     The empire is a fuel tank filled by your real steps. Each day it can pay out
+     at most `idleFuelRatio` (<1) of the coins your walking earned the day before,
+     scaled by empire efficiency (<1). So idle income in a day is ALWAYS strictly
+     less than the walking that fuels it — walking is never the worse way to earn.
+
+   Why this is stronger than the old flat cap: capacity (yesterday's steps) now
+   drives idle at EVERY empire size, and buying more empire raises efficiency
+   toward the fuel ceiling — both levers stay alive. Proven in engine.test.ts.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 // ── Tuning (all illustrative knobs) ──────────────────────────────────────────
 export const T = {
   baseRate: 0.1,        // coins per step at neutral mults (1k steps → 100 coins)
   cadenceSpm: 100,      // "active walking" steps/min — the yardstick idle is measured against
-  idleCeil: 0.5,        // idle/hr ≤ idleCeil × walk/hr. Must be <1 ⇒ walking always wins
+  idleFuelRatio: 0.75,  // empire pays ≤ 75% of the walk that fuels it. Must be <1 ⇒ walking always wins
+  empireK: 800,         // efficiency curve: eff = raw/(raw+K). Bigger empire → closer to the fuel ceiling
+  activeH: 16,          // the fuel allowance drips over ~16 waking hours
+  offlineCapH: 8,       // idle while away is capped → a reason to come back
+  dailyStepCap: 100000, // anti-cheat: steps/day beyond this don't earn (implausible) (§11)
   goalLo: 4000,
   goalHi: 15000,
-  offlineCapH: 8,       // idle while away is capped → a reason to come back
   prestigeMin: 1_000_000, // can Retire once net worth hits Rich
 };
 export const WAGER_TIERS = [
@@ -39,15 +46,16 @@ export interface Wager { stake: number; target: number; mult: number; day: strin
 export interface State {
   v: number;
   coins: number; eventMult: number;
-  stepsToday: number; stepsYest: number; median7: number;
+  stepsToday: number; stepsYest: number; median7: number; lifeSteps: number;
   combo: number; streak: number; freezes: number; day: string;
   assets: Record<string, number>;    // assetId → owned count
   upgrades: Record<string, number>;  // upgradeId → level
   items: string[];                   // owned item ids
+  idleToday: number;                 // idle coins already drawn from today's fuel tank
   wager: Wager | null; wagerWins: number;
   legacy: number; gen: number;       // prestige: cumulative retired net worth + generation
   achieved: string[];
-  lastMs: number;
+  lastMs: number; firstMs: number;
   pro: boolean; debugUnlockAll: boolean;
 }
 
@@ -99,6 +107,17 @@ export const TIER_BLURB: Record<Tier, string> = {
   Rich: 'the first real flex ⭐', Ultra: 'absurd, aspirational', Billionaire: 'the endgame meme flex',
 };
 
+// Offline "rivals" leaderboard (§8 social-comparison hook without a backend). They grow
+// over real time, so you must keep earning to stay ahead. Clearly local until Game Center.
+const RIVALS: { name: string; base: number; rate: number }[] = [
+  { name: 'Marcus', base: 2_500,      rate: 0.09 },
+  { name: 'Priya',  base: 38_000,     rate: 0.07 },
+  { name: 'Diego',  base: 450_000,    rate: 0.055 },
+  { name: 'Sana',   base: 3_200_000,  rate: 0.045 },
+  { name: 'Liam',   base: 70_000_000, rate: 0.035 },
+  { name: 'Yuki',   base: 900_000_000,rate: 0.03 },
+];
+
 const ACHIEVEMENTS: { id: string; name: string; when: (s: State) => boolean; reward?: (s: State) => State }[] = [
   { id: 'firstAsset', name: 'First Business',     when: s => Object.values(s.assets).some(v => v > 0), reward: s => ({ ...s, coins: s.coins + 1000 }) },
   { id: 'firstItem',  name: 'First Flex',         when: s => s.items.length > 0 },
@@ -111,27 +130,42 @@ const ACHIEVEMENTS: { id: string; name: string; when: (s: State) => boolean; rew
   { id: 'billionaire',name: 'Ten Figures',        when: s => netWorth(s) >= 1_000_000_000 },
 ];
 
-// ── Pure economy (the invariant lives here) ──────────────────────────────────
+// ── Pure economy (the promise lives here) ────────────────────────────────────
 const clamp = (x: number, lo: number, hi: number) => Math.min(Math.max(x, lo), hi);
 
 export const goal = (s: State) => Math.round(clamp(s.median7 * 1.1, T.goalLo, T.goalHi));
 export const comboMult = (combo: number) => Math.min(1 + 0.1 * combo, 3);
 export const upgradeFactor = (s: State) => 1 + UPGRADES.reduce((n, u) => n + (s.upgrades[u.id] || 0) * u.boost, 0);
 export const legacyMult = (s: State) => 1 + Math.sqrt(s.legacy / T.prestigeMin);
-// One multiplier chain used by BOTH step and idle yardsticks ⇒ they move together.
+// One multiplier chain used by BOTH the step and idle sides ⇒ they move together.
 export const earnMult = (s: State) => comboMult(s.combo) * s.eventMult * upgradeFactor(s) * legacyMult(s);
 export const coinsForSteps = (steps: number, s: State) => steps * T.baseRate * earnMult(s);
-export const walkPerHour = (s: State) => coinsForSteps(T.cadenceSpm * 60, s);                 // the yardstick
-export const capacity = (s: State) => clamp(s.stepsYest / goal(s), 0.1, 1.25);                // §6: empire runs at last walk
+export const walkPerHour = (s: State) => coinsForSteps(T.cadenceSpm * 60, s);                 // the yardstick (per hour)
+export const capacity = (s: State) => clamp(s.stepsYest / goal(s), 0.1, 1.25);                // §6: shown to the player
 export const assetCost = (a: Asset, s: State) => a.cost * a.grow ** (s.assets[a.id] || 0);
 export const upgradeCost = (u: Upgrade, s: State) => u.cost * u.grow ** (s.upgrades[u.id] || 0);
 export const rawIdle = (s: State) => ASSETS.reduce((n, a) => n + (s.assets[a.id] || 0) * a.out, 0);
-export const idlePerHour = (s: State) => Math.min(rawIdle(s) * capacity(s), T.idleCeil * walkPerHour(s)); // THE CLAMP
-export const invariantOk = (s: State) => idlePerHour(s) < walkPerHour(s);                     // strict ⇒ a step is always worth more
+
+// THE FUEL MODEL — the heart of the fix.
+export const empireEff = (s: State) => { const r = rawIdle(s); return r / (r + T.empireK); };           // ∈ [0,1): bigger empire captures more fuel
+export const walkDayEarnings = (s: State) => coinsForSteps(s.stepsYest, s);                              // the walk that fuels today
+export const idleAllowance = (s: State) => T.idleFuelRatio * walkDayEarnings(s) * empireEff(s);          // max idle this whole day (< walk that fuels it)
+export const idleFuelLeft = (s: State) => Math.max(0, idleAllowance(s) - s.idleToday);                   // tank remaining today
+export const idlePerHour = (s: State) => (idleFuelLeft(s) > 0 ? idleAllowance(s) / T.activeH : 0);       // drip rate while fuel remains
+// The promise, made checkable: a day's idle can never reach the walking that fuels it.
+export const invariantOk = (s: State) => walkDayEarnings(s) === 0 || idleAllowance(s) < walkDayEarnings(s);
+
 export const netWorth = (s: State) => s.coins + ITEMS.filter(i => s.items.includes(i.id)).reduce((n, i) => n + i.cost, 0);
 export const tierOf = (s: State): Tier => { let t: Tier = 'Broke'; for (const x of TIERS) if (netWorth(s) >= TIER_MIN[x]) t = x; return t; };
+export const signatureTrophy = (s: State) => [...ITEMS].reverse().find(i => i.sig && s.items.includes(i.id));
 export const nextItem = (s: State) => { const left = ITEMS.filter(i => !s.items.includes(i.id)); return left.sort((a, b) => a.cost - b.cost).find(i => i.cost > s.coins) ?? left[0]; };
 export const canRetire = (s: State) => netWorth(s) >= T.prestigeMin;
+
+export function rivals(s: State): { name: string; net: number; you?: boolean }[] {
+  const days = Math.max(0, (Date.now() - s.firstMs) / 8.64e7);
+  const list = RIVALS.map(r => ({ name: r.name, net: r.base * (1 + r.rate) ** days }));
+  return [...list, { name: 'You', net: netWorth(s), you: true }].sort((a, b) => b.net - a.net);
+}
 
 const U = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi'];
 export function fmt(n: number): string {
@@ -156,17 +190,17 @@ export const bus = {
 };
 
 // ── Persistence (local-first, §15; guarded so node/tests don't touch localStorage) ──
-const VER = 2;
-const KEY = 'stride.v2';
+const VER = 3;
+const KEY = 'stride.v3';
 const hasLS = typeof localStorage !== 'undefined';
 export const today = (d = new Date()) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 export const initial = (): State => ({
   v: VER, coins: 500, eventMult: 1,                       // §12: seed coins so first buy is instant
-  stepsToday: 0, stepsYest: 6000, median7: 4000,          // stepsYest>0 ⇒ empire isn't at the floor on install
+  stepsToday: 0, stepsYest: 6000, median7: 4000, lifeSteps: 0,  // stepsYest>0 ⇒ the empire has fuel on a fresh install
   combo: 0, streak: 0, freezes: 1, day: today(),
-  assets: {}, upgrades: {}, items: [],
+  assets: {}, upgrades: {}, items: [], idleToday: 0,
   wager: null, wagerWins: 0, legacy: 0, gen: 0, achieved: [],
-  lastMs: Date.now(), pro: false, debugUnlockAll: false,
+  lastMs: Date.now(), firstMs: Date.now(), pro: false, debugUnlockAll: false,
 });
 const load = (): State | null => { if (!hasLS) return null; try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); return s?.v === VER ? s : null; } catch { return null; } };
 const save = (s: State) => { if (hasLS) try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* full/disabled */ } };
@@ -180,7 +214,7 @@ export class SimSteps implements StepSource {
   stop() { clearInterval(this.t); this.t = null; }
 }
 
-// Day rollover: settle wager, fire streak milestones, advance/reset combo & streak.
+// Day rollover: refill the fuel tank, settle wager, fire streak milestones, advance/reset combo.
 function roll(s: State, day: string): State {
   const hit = s.stepsToday >= goal(s);
   let { combo, streak, freezes, coins, wager, wagerWins } = s;
@@ -197,7 +231,8 @@ function roll(s: State, day: string): State {
     else bus.toast('🎰 Wager lost — get them tomorrow', 'bad');
     wager = null;
   }
-  return { ...s, combo, streak, freezes, coins, wager, wagerWins, stepsYest: s.stepsToday, stepsToday: 0, day };
+  // stepsYest = the day just ended → it fuels tomorrow's empire. idleToday resets (fresh tank).
+  return { ...s, combo, streak, freezes, coins, wager, wagerWins, stepsYest: s.stepsToday, stepsToday: 0, idleToday: 0, day };
 }
 
 // ── Store: the single source of truth + the game loop ────────────────────────
@@ -219,17 +254,31 @@ class Store {
     this.s = next; save(next); this.ls.forEach(l => l());
   }
 
-  start() { if (this.loop) return; this.tick(); this.loop = setInterval(() => this.tick(), 1000); }
+  start() { if (this.loop) return; this.loop = setInterval(() => this.tick(), 1000); }
   private tick() {
     const now = Date.now(), s = this.s;
-    let next: State = { ...s, coins: s.coins + idlePerHour(s) * ((now - s.lastMs) / 3.6e6), lastMs: now }; // invariant-safe idle
-    const k = today(new Date(now));
-    if (k !== s.day) next = roll(next, k);
+    const next = this.settle(s, now);
     this.s = next; save(next); this.ls.forEach(l => l());
   }
+  // Credit fuel-limited idle for elapsed time + roll the day if the date changed. Pure-ish.
+  private settle(s: State, now: number): State {
+    let st = s;
+    const k = today(new Date(now));
+    if (k !== st.day) st = roll(st, k);                                   // refills the tank, sets stepsYest
+    const dtH = Math.max(0, (now - st.lastMs) / 3.6e6);
+    const gain = Math.min(idlePerHour(st) * dtH, idleFuelLeft(st));       // never exceed the day's fuel
+    return { ...st, coins: st.coins + gain, idleToday: st.idleToday + gain, lastMs: now };
+  }
 
-  // Credit steps + emit a floating "+X" for juice.
-  steps(d: number) { if (d > 0) { const g = coinsForSteps(d, this.s); this.set({ stepsToday: this.s.stepsToday + d, coins: this.s.coins + g }); bus.emit({ type: 'gain', amount: g }); } }
+  // Anti-cheat (§11): only plausible steps earn. Credit steps + emit a floating "+coins".
+  steps(d: number) {
+    if (!(d > 0)) return;
+    const accept = Math.max(0, Math.min(d, T.dailyStepCap - this.s.stepsToday));
+    if (accept <= 0) return;
+    const g = coinsForSteps(accept, this.s);
+    this.set({ stepsToday: this.s.stepsToday + accept, lifeSteps: this.s.lifeSteps + accept, coins: this.s.coins + g });
+    bus.emit({ type: 'gain', amount: g });
+  }
   buyAsset(id: string) { const a = ASSETS.find(x => x.id === id)!; const c = assetCost(a, this.s); if (this.s.coins >= c) this.set({ coins: this.s.coins - c, assets: { ...this.s.assets, [id]: (this.s.assets[id] || 0) + 1 } }); }
   buyUpgrade(id: string) { const u = UPGRADES.find(x => x.id === id)!; const c = upgradeCost(u, this.s); if (this.s.coins >= c) this.set({ coins: this.s.coins - c, upgrades: { ...this.s.upgrades, [id]: (this.s.upgrades[id] || 0) + 1 } }); }
   buyItem(id: string) { const i = ITEMS.find(x => x.id === id)!; if (!this.s.items.includes(id) && this.s.coins >= i.cost) this.set({ coins: this.s.coins - i.cost, items: [...this.s.items, id] }); }
@@ -251,18 +300,30 @@ class Store {
     const banked = netWorth(this.s);
     const base = initial();
     const newLegacy = this.s.legacy + banked, newGen = this.s.gen + 1;
-    this.set({ ...base, items: this.s.items, streak: this.s.streak, freezes: this.s.freezes,
-      legacy: newLegacy, gen: newGen, wagerWins: this.s.wagerWins, achieved: this.s.achieved, day: this.s.day });
+    this.set({ ...base, items: this.s.items, streak: this.s.streak, freezes: this.s.freezes, lifeSteps: this.s.lifeSteps,
+      firstMs: this.s.firstMs, legacy: newLegacy, gen: newGen, wagerWins: this.s.wagerWins, achieved: this.s.achieved, day: this.s.day });
     bus.toast(`🎖️ Retired! Gen ${newGen} · Legacy ×${legacyMult({ ...base, legacy: newLegacy }).toFixed(2)}`, 'good');
   }
 
-  // Credit capped offline idle on return; returns the reveal for the "welcome back" modal.
+  // On return: settle offline idle (fuel- and time-capped) and reveal it for the modal.
   takeOffline(): { coins: number; hours: number } | null {
-    const now = Date.now(), gapH = (now - this.s.lastMs) / 3.6e6;
-    if (gapH < 1 / 60) { this.s = { ...this.s, lastMs: now }; return null; }   // <1 min: nothing to reveal
-    const earned = idlePerHour(this.s) * Math.min(gapH, T.offlineCapH);
-    this.set({ coins: this.s.coins + earned, lastMs: now });
-    return earned > 0 ? { coins: earned, hours: gapH } : null;
+    const now = Date.now(), s = this.s;
+    const gapH = (now - s.lastMs) / 3.6e6;
+    const before = s.coins;
+    // Cap the elapsed time used for crediting at offlineCapH, but still roll the date.
+    const cappedNow = s.lastMs + Math.min(now - s.lastMs, T.offlineCapH * 3.6e6);
+    let next = this.settle(s, cappedNow);
+    next = { ...next, lastMs: now };
+    const earned = next.coins - before;
+    this.s = next; save(next); this.ls.forEach(l => l());
+    return gapH >= 1 / 60 && earned > 0 ? { coins: earned, hours: gapH } : null;
+  }
+
+  // Cloud-save substitute (§6 fix): portable backup code so progress survives a cleared browser.
+  exportSave(): string { try { return btoa(unescape(encodeURIComponent(JSON.stringify(this.s)))); } catch { return ''; } }
+  importSave(code: string): boolean {
+    try { const s = JSON.parse(decodeURIComponent(escape(atob(code.trim())))); if (s?.v !== VER) return false; this.set(s); return true; }
+    catch { return false; }
   }
 
   // Freemium (§14A): one-time unlock; perks are cosmetic/convenience only. Debug switch opens all gates.
@@ -273,7 +334,7 @@ class Store {
   // Debug cheats
   give(n: number) { this.set({ coins: this.s.coins + n }); }
   freeze() { this.set({ freezes: this.s.freezes + 1 }); }
-  rollNow() { const next = roll(this.s, today(new Date(Date.now() + 864e5))); this.set(next); }
+  rollNow() { this.set(roll(this.s, today(new Date(Date.now() + 864e5)))); }
   reset() { this.set(initial()); }
 }
 

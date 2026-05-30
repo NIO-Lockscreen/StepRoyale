@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   store, useGame, bus, type BusEvent,
-  ASSETS, UPGRADES, ITEMS, PERKS, TIERS, TIER_BLURB, WAGER_TIERS, WAGER_MAX,
+  ASSETS, UPGRADES, ITEMS, PERKS, TIERS, TIER_BLURB, WAGER_TIERS, WAGER_MAX, T,
   assetCost, upgradeCost, comboMult, capacity, goal, idlePerHour, walkPerHour,
-  invariantOk, netWorth, tierOf, nextItem, earnMult, legacyMult, canRetire, fmt, pct,
+  invariantOk, netWorth, tierOf, nextItem, earnMult, legacyMult, canRetire,
+  empireEff, idleAllowance, idleFuelLeft, walkDayEarnings, signatureTrophy, rivals, fmt, pct,
 } from './game/engine';
 
 const cls = (...x: (string | false | undefined)[]) => x.filter(Boolean).join(' ');
@@ -30,8 +31,7 @@ function useTween(value: number) {
   useEffect(() => {
     const from = ref.current, diff = value - from; ref.current = value;
     if (Math.abs(diff) < 1) { setShown(value); return; }
-    const t0 = performance.now(), dur = 450;
-    let raf = 0;
+    const t0 = performance.now(), dur = 450; let raf = 0;
     const step = (t: number) => { const k = Math.min((t - t0) / dur, 1); setShown(from + diff * (1 - (1 - k) ** 3)); if (k < 1) raf = requestAnimationFrame(step); };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
@@ -43,12 +43,13 @@ function useTween(value: number) {
 function Home() {
   const s = useGame(), g = goal(s), prog = Math.min(s.stepsToday / g, 1);
   const coins = useTween(s.coins);
+  const fuelPct = idleAllowance(s) > 0 ? idleFuelLeft(s) / idleAllowance(s) : 0;
   return (
     <div className="view">
       <div className="hero">
         <div className="hero-coins">{fmt(coins)}</div>
         <div className="hero-sub">net worth {fmt(netWorth(s))} · {tierOf(s)}{s.gen > 0 && <> · Gen {s.gen} 🎖️</>}</div>
-        <div className="hero-rate">+{fmt(idlePerHour(s))}/hr idle · walking pays {fmt(walkPerHour(s))}/hr</div>
+        <div className="hero-rate">{idlePerHour(s) > 0 ? `+${fmt(idlePerHour(s))}/hr idle` : 'empire idle — walk to refuel'} · walking pays {fmt(walkPerHour(s))}/hr</div>
       </div>
       <Card title="Today's goal">
         <div className="goal-row"><span>{Math.floor(s.stepsToday).toLocaleString()} / {g.toLocaleString()}</span><span className="muted">{pct(prog)}</span></div>
@@ -59,17 +60,25 @@ function Home() {
           <Stat label="Combo" value={`×${comboMult(s.combo).toFixed(1)}`} accent="gold" />
           <Stat label="Streak" value={`${s.streak}d 🔥`} />
           <Stat label="Freezes" value={`${s.freezes} ❄️`} />
-          <Stat label="Capacity" value={pct(capacity(s))} accent={capacity(s) >= 1 ? 'green' : 'red'} />
+          <Stat label="Lifetime steps" value={fmt(s.lifeSteps)} />
         </div>
       </Card>
-      {/* The invariant, made visible. Walking always wins — by construction. */}
+
+      {/* Empire fuel — the fix made visible: idle is a tank your steps fill. */}
+      <Card title="Empire fuel ⛽">
+        <div className="goal-row"><span>{fmt(idleFuelLeft(s))} left today</span><span className="muted">{pct(fuelPct)}</span></div>
+        <div className="bar"><div className="bar-fill fuel" style={{ width: `${fuelPct * 100}%` }} /></div>
+        <p className="fine">Yesterday's {s.stepsYest.toLocaleString()} steps earned {fmt(walkDayEarnings(s))}; your empire may pay out up to {pct(T.idleFuelRatio)} of that, scaled by size ({pct(empireEff(s))} efficiency). Walk more → bigger tank tomorrow.</p>
+      </Card>
+
+      {/* The promise, made visible. Walking always wins — per day, by construction. */}
       <Card title="Why walking wins">
         <div className="stat-grid">
-          <Stat label="Walk / hr" value={fmt(walkPerHour(s))} accent="green" />
-          <Stat label="Idle / hr" value={fmt(idlePerHour(s))} />
+          <Stat label="Walk fuel (yest)" value={fmt(walkDayEarnings(s))} accent="green" />
+          <Stat label="Max idle today" value={fmt(idleAllowance(s))} />
         </div>
-        <div className={cls('invariant', invariantOk(s) ? 'ok' : 'bad')}>{invariantOk(s) ? '✓ Steps out-earn idle. Always.' : '✗ INVARIANT BROKEN'}</div>
-        <p className="fine">Total earn multiplier: <strong>×{earnMult(s).toFixed(2)}</strong> — it lifts walking and idle together, so sitting still can never become the better move.</p>
+        <div className={cls('invariant', invariantOk(s) ? 'ok' : 'bad')}>{invariantOk(s) ? '✓ A day of idle can never beat the walk that fuels it.' : '✗ INVARIANT BROKEN'}</div>
+        <p className="fine">Earn multiplier <strong>×{earnMult(s).toFixed(2)}</strong> lifts walking and idle together — sitting still can never become the better move.</p>
       </Card>
     </div>
   );
@@ -80,10 +89,10 @@ function Empire() {
   return (
     <div className="view">
       <Card title="Empire — passive income">
-        <p className="fine">Throttled by your last walk, capped below walking. Now: <strong>{fmt(idlePerHour(s))}/hr</strong>.</p>
+        <p className="fine">Each asset adds output and raises efficiency ({pct(empireEff(s))}), pulling more from your daily step-fuel. Now: <strong>{fmt(idlePerHour(s))}/hr</strong>.</p>
         <div className="list">{ASSETS.map(a => {
           const c = assetCost(a, s), ok = s.coins >= c;
-          return <Row key={a.id} emoji={a.emoji} name={a.name} sub={`owned ${s.assets[a.id] || 0} · ${fmt(a.out)}/hr each`} right={fmt(c)} rightMuted={!ok} disabled={!ok} onClick={() => store.buyAsset(a.id)} />;
+          return <Row key={a.id} emoji={a.emoji} name={a.name} sub={`owned ${s.assets[a.id] || 0} · ${fmt(a.out)} fuel-draw each`} right={fmt(c)} rightMuted={!ok} disabled={!ok} onClick={() => store.buyAsset(a.id)} />;
         })}</div>
       </Card>
       <Card title="Upgrades — permanent ×multiplier">
@@ -143,21 +152,57 @@ function Showroom() {
   );
 }
 
+// §8 growth engine: a shareable Flex Card + an offline rivals leaderboard.
+function Social() {
+  const s = useGame();
+  const trophy = signatureTrophy(s);
+  const board = rivals(s);
+  const share = async () => {
+    const text = `My STRIDE empire: ${fmt(netWorth(s))} net worth, ${tierOf(s)} tier${trophy ? `, flexing a ${trophy.name} ${trophy.emoji}` : ''} — powered by ${Math.floor(s.lifeSteps).toLocaleString()} real steps. 🏃💰`;
+    try { if ((navigator as any).share) await (navigator as any).share({ title: 'STRIDE', text }); else { await navigator.clipboard.writeText(text); bus.toast('Flex copied to clipboard', 'good'); } }
+    catch { /* user dismissed */ }
+  };
+  return (
+    <div className="view">
+      <Card title="🪪 Your Flex Card">
+        <div className="flexcard">
+          <div className="fc-top"><span className="fc-brand">STRIDE</span><span className="fc-tier">{tierOf(s)}{s.gen > 0 && ` · Gen ${s.gen}`}</span></div>
+          <div className="fc-net">{fmt(netWorth(s))}</div>
+          <div className="fc-trophy">{trophy ? <>{trophy.emoji} {trophy.name}</> : 'no signature flex yet'}</div>
+          <div className="fc-foot">powered by {Math.floor(s.lifeSteps).toLocaleString()} real steps · {s.streak}d 🔥</div>
+        </div>
+        <button className="btn btn-primary" onClick={share}>Share my flex</button>
+      </Card>
+      <Card title="🏆 Rivals — Net Worth">
+        <p className="fine">Rivals grow every day whether you walk or not. Local demo until Game Center.</p>
+        <div className="list">{board.map((r, i) => (
+          <div key={r.name} className={cls('row static', r.you && 'owned')}>
+            <span className="row-emoji">{i === 0 ? '👑' : `#${i + 1}`}</span>
+            <span className="row-main"><span className="row-name">{r.name}{r.you && ' (you)'}</span></span>
+            <span className="row-cost">{fmt(r.net)}</span>
+          </div>
+        ))}</div>
+      </Card>
+    </div>
+  );
+}
+
 function More() {
   const s = useGame(), on = store.proUnlocked();
-  const wonCount = s.achieved.length;
+  const [code, setCode] = useState('');
+  const ids = ['firstAsset','firstItem','firstUp','combo10','wagerWin','streak7','rich','retire','billionaire'];
+  const names = ['First Business','First Flex','Self-Improvement','On a Roll (×2)','House Always Wins','Week Warrior','Rolex Money','Retired Early','Ten Figures'];
   return (
     <div className="view">
       <Card title="🎖️ Retire (Prestige)">
-        <p className="fine">Reset coins, empire & upgrades for a permanent <strong>Legacy ×{legacyMult(s).toFixed(2)}</strong> that makes every future run faster. Your flexes and streak stay forever.</p>
+        <p className="fine">Reset coins, empire & upgrades for a permanent <strong>Legacy ×{legacyMult(s).toFixed(2)}</strong> that makes every future run faster. Flexes, streak & lifetime steps stay forever.</p>
         {canRetire(s)
           ? <button className="btn btn-primary" onClick={() => store.retire()}>Retire now → Gen {s.gen + 1}</button>
           : <p className="fine">Reach <strong>{fmt(1_000_000)}</strong> net worth to retire. ({fmt(netWorth(s))} so far.)</p>}
       </Card>
 
-      <Card title={`🏆 Achievements · ${wonCount}/9`}>
-        <div className="chips">{['First Business','First Flex','Self-Improvement','On a Roll (×2)','House Always Wins','Week Warrior','Rolex Money','Retired Early','Ten Figures'].map((n, i) => {
-          const ids = ['firstAsset','firstItem','firstUp','combo10','wagerWin','streak7','rich','retire','billionaire'];
+      <Card title={`🏆 Achievements · ${s.achieved.length}/9`}>
+        <div className="chips">{names.map((n, i) => {
           const got = s.achieved.includes(ids[i]);
           return <span key={n} className={cls('chip', got && 'got')}>{got ? '🏆' : '🔒'} {n}</span>;
         })}</div>
@@ -168,6 +213,15 @@ function More() {
         <div className="list">{PERKS.map(p => <Row key={p} emoji={on ? '✓' : '🔒'} name={p} owned={on} />)}</div>
         <p className="fine">None of these earn coins or rank — the leaderboard stays fair. Pro is convenience and flex, never power.</p>
         {!on && <button className="btn btn-primary" onClick={() => store.buyPro()}>Unlock STRIDE Pro · $5.99</button>}
+      </Card>
+
+      <Card title="💾 Backup & restore">
+        <p className="fine">Local saves vanish if you clear the browser. Copy a backup code, or paste one to restore (until cloud save ships).</p>
+        <div className="btn-row">
+          <button className="btn" onClick={async () => { await navigator.clipboard.writeText(store.exportSave()); bus.toast('Backup copied', 'good'); }}>Copy backup</button>
+        </div>
+        <input className="text-in" placeholder="paste backup code…" value={code} onChange={e => setCode(e.target.value)} />
+        <button className="btn" disabled={!code} onClick={() => bus.toast(store.importSave(code) ? 'Save restored' : 'Invalid code', store.importSave(code) ? 'good' : 'bad')}>Restore</button>
       </Card>
 
       <Card title="🐞 Debug / Test">
@@ -207,7 +261,7 @@ function Effects() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-emoji">💰</div>
             <h2>Welcome back!</h2>
-            <p>Your empire earned <strong className="gold">{fmt(offline.coins)}</strong> while you were away{offline.hours >= 8 && ' (capped at 8h — walk to earn more!)'}.</p>
+            <p>Your empire earned <strong className="gold">{fmt(offline.coins)}</strong> from yesterday's step-fuel while you were away{offline.hours >= 8 && ' (capped at 8h — walk to refuel!)'}.</p>
             <button className="btn btn-primary" onClick={() => setOffline(null)}>Collect</button>
           </div>
         </div>
@@ -219,7 +273,7 @@ function Effects() {
 // ── Shell ─────────────────────────────────────────────────────────────────────
 const TABS = [
   ['Home', '🏠', Home], ['Empire', '🏢', Empire], ['Wager', '🎰', WagerScreen],
-  ['Showroom', '💎', Showroom], ['More', '⋯', More],
+  ['Showroom', '💎', Showroom], ['Rivals', '🏆', Social], ['More', '⋯', More],
 ] as const;
 
 export default function App() {

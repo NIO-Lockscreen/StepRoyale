@@ -41,7 +41,9 @@ npm test        # run the invariant proof (steps always out-earn idle)
 
 **Highlights**
 - The design promise is a **hard, tested invariant** in `game/engine.ts`, not a tuning
-  value — `idlePerHour` clamps idle below walking. See `npm test`.
+  value: the empire is a **fuel tank filled by your steps** — a day's idle can never
+  reach the walking that fuels it (`idleAllowance < walkDayEarnings`), at any empire size.
+  See `npm test`.
 - **Freemium**: a one-time "STRIDE Pro" unlock (cosmetics/convenience only); `store.buyPro()`.
 - **"Unlock everything to test"**: `Debug → 🔓 Unlock Everything` opens every gate.
 - Architected to port to native iOS via the `StepSource` seam (HealthKit) + Capacitor.
