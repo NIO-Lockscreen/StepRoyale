@@ -232,6 +232,152 @@ body {
   padding: 4px;
   cursor: pointer;
   font-size: 11px;
+  position: relative;
 }
 .tab.active { color: var(--green); }
 .tab-icon { font-size: 20px; }
+
+/* Tab notification dot */
+.tab-dot {
+  position: absolute;
+  top: 2px;
+  right: calc(50% - 13px);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  border: 1.5px solid #0a0f0c;
+  animation: tabDot 2s ease-in-out infinite;
+}
+
+/* ── Keyframe animations ────────────────────────────────── */
+
+@keyframes tabDot {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%       { transform: scale(.7); opacity: .55; }
+}
+
+@keyframes coinFlash {
+  0%   { text-shadow: 0 2px 18px rgba(244,211,94,.25); }
+  35%  { text-shadow: 0 0 40px rgba(244,211,94,.95), 0 0 80px rgba(244,211,94,.4), 0 0 120px rgba(70,224,138,.2); transform: scale(1.04); }
+  100% { text-shadow: 0 2px 18px rgba(244,211,94,.25); transform: scale(1); }
+}
+
+@keyframes goalShimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes purchasePop {
+  0%   { transform: scale(1); border-color: rgba(70,224,138,.4); box-shadow: none; }
+  35%  { transform: scale(1.012); box-shadow: 0 0 22px rgba(70,224,138,.45); }
+  100% { transform: scale(1); box-shadow: none; }
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(14px) scale(.94); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes toastOut {
+  from { opacity: 1; transform: translateY(0) scale(1); max-height: 80px; margin-bottom: 0; }
+  to   { opacity: 0; transform: translateY(-10px) scale(.94); max-height: 0; margin-bottom: -8px; }
+}
+
+@keyframes floatUp {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  70%  { opacity: .9; }
+  100% { opacity: 0; transform: translateY(-52px) scale(.88); }
+}
+
+@keyframes streakPop {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.18); }
+}
+
+/* Animated coin hero */
+.hero-coins { transition: none; }
+.hero-coins.flash {
+  animation: coinFlash .55s cubic-bezier(.22,1,.36,1);
+}
+
+/* Progress bar – complete shimmer */
+.bar-fill.complete {
+  background: linear-gradient(90deg,
+    var(--green-deep),
+    var(--green) 35%,
+    #b5ffe4 52%,
+    var(--green) 65%,
+    var(--green-deep)
+  );
+  background-size: 220% auto;
+  animation: goalShimmer 1.8s linear infinite;
+}
+
+/* Empire row effects */
+.row.just-bought {
+  animation: purchasePop .45s cubic-bezier(.34,1.56,.64,1);
+  border-color: var(--green) !important;
+}
+.row.can-afford:not(:disabled) {
+  border-color: rgba(70,224,138,.3);
+  box-shadow: 0 0 12px rgba(70,224,138,.07) inset;
+}
+
+/* Streak fire badge */
+.streak-fire {
+  font-size: 13px;
+  animation: streakPop 2.4s ease-in-out infinite;
+  display: inline-block;
+}
+
+/* Goal complete message */
+.goal-complete {
+  margin-top: 10px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  background: rgba(70,224,138,.1);
+  border: 1px solid rgba(70,224,138,.35);
+  color: var(--green);
+  font-weight: 700;
+  font-size: 14px;
+  text-align: center;
+}
+
+/* Toast notification stack */
+.toast-stack {
+  position: fixed;
+  bottom: 104px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(calc(100vw - 28px), 452px);
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  background: linear-gradient(135deg, var(--card-2) 0%, var(--card) 100%);
+  border: 1px solid rgba(70,224,138,.45);
+  border-radius: 14px;
+  padding: 13px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow:
+    0 10px 32px rgba(0,0,0,.5),
+    0 0 20px rgba(70,224,138,.12),
+    inset 0 1px 0 rgba(255,255,255,.04);
+  animation: toastIn .3s cubic-bezier(.34,1.56,.64,1);
+  overflow: hidden;
+}
+.toast.exiting {
+  animation: toastOut .28s ease-in forwards;
+  overflow: hidden;
+}
+.toast-emoji { font-size: 24px; line-height: 1; flex-shrink: 0; }
+.toast-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.toast-title { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toast-sub   { color: var(--muted); font-size: 12px; }

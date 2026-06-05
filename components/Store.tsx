@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { gameStore, useGame, PRO_PERKS } from '../game/store';
 import { IAP } from '../game/iap';
-import { Button, Card } from './ui';
+import { Button, Card, toast } from './ui';
 
 export function Store() {
   const s = useGame();
@@ -36,8 +36,9 @@ export function Store() {
             disabled={busy}
             onClick={async () => {
               setBusy(true);
-              await IAP.purchase();
+              const result = await IAP.purchase();
               setBusy(false);
+              if (result.ok) toast('👑', 'STRIDE Pro unlocked!', 'Thanks for supporting the app');
             }}
           >
             Unlock STRIDE Pro · {IAP.displayPrice}
