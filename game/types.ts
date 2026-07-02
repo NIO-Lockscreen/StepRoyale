@@ -99,8 +99,18 @@ export interface GameState {
 
   // Daily wager
   wager: ActiveWager | null;
-  /** Day a wager was last placed — enforces one wager per day. */
-  wagerPlacedDay: string;
+  /** Wagers placed since the last rollover — capped by `store.maxWagerSlots()`
+   *  (1 free, 2 with Royale Pro). */
+  wagersPlacedToday: number;
+
+  // ── Royale Pro perk state (cosmetic/convenience only) ───────────────────────
+  /** App-wide accent theme id (game/pro.ts THEMES). Applied only while Pro. */
+  proTheme: string;
+  /** Flex Card frame id (game/pro.ts FLEX_FRAMES). */
+  flexFrame: string;
+  /** Freeze-stash bookkeeping: YYYY-MM the claims below belong to. */
+  freezeStashMonth: string;
+  freezeStashClaimed: number;
 
   // Queued UI moments (persisted so closing mid-celebration shows it on return)
   pendingLevelUp: LevelUpEvent | null;

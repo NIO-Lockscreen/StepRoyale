@@ -306,6 +306,61 @@ body {
   margin-top: 2px;
 }
 
+/* Theme swatch dot inside chips */
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: baseline;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+/* Flex Card (Royale Pro) */
+.flex-card {
+  border-radius: 16px;
+  padding: 18px 16px;
+  text-align: center;
+  background: linear-gradient(160deg, var(--card-2), #0a0806);
+  border: 2px solid var(--gold);
+  box-shadow: inset 0 0 28px rgba(232, 193, 90, 0.14);
+}
+.flex-card.frame-emerald { border-color: #34d399; box-shadow: inset 0 0 28px rgba(52, 211, 153, 0.16); }
+.flex-card.frame-onyx { border-color: #9ca3af; background: linear-gradient(160deg, #131313, #030303); box-shadow: inset 0 0 28px rgba(156, 163, 175, 0.12); }
+.flex-card.frame-royal { border-color: #a78bfa; box-shadow: inset 0 0 28px rgba(167, 139, 250, 0.18); }
+.flex-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.flex-worth {
+  font-family: var(--serif);
+  font-size: 38px;
+  font-weight: 700;
+  color: var(--gold);
+  margin-top: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.flex-tier {
+  font-size: 12px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--text);
+  margin: 2px 0 8px;
+}
+.flex-stats {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 /* Full-screen queued moments (level-up, away recap) */
 .overlay {
   position: fixed;

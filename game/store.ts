@@ -10,6 +10,7 @@ import {
 } from './progression';
 import { dailyGoal, idleRatePerHour, mults } from './selectors';
 import { MIN_STAKE, wagerExtraSteps, wagerTier, type WagerTierId } from './wager';
+import { FLEX_FRAMES, FREEZES_PER_MONTH, THEMES } from './pro';
 
 /** An absence long enough to deserve a "while you were away" recap. */
 const AWAY_RECAP_MS = 10 * 60_000;
@@ -133,12 +134,18 @@ class GameStore {
 
   // ── Daily wager ─────────────────────────────────────────────────────────────
 
-  /** Stake coins on walking EXTRA steps (from now) before midnight. One per day. */
+  /** Daily wager slots: 1 free, 2 with Royale Pro (the "Extra Wager slots" perk). */
+  maxWagerSlots(): number {
+    return this.isProUnlocked() ? 2 : 1;
+  }
+
+  /** Stake coins on walking EXTRA steps (from now) before midnight.
+   *  One live wager at a time; slots per day capped by `maxWagerSlots()`. */
   placeWager(tierId: WagerTierId, stake: number): boolean {
     const s = this.state;
     const tier = wagerTier(tierId);
     stake = Math.floor(stake);
-    if (!tier || s.wager || s.wagerPlacedDay === s.dayKey) return false;
+    if (!tier || s.wager || s.wagersPlacedToday >= this.maxWagerSlots()) return false;
     if (stake < MIN_STAKE || stake > s.coins) return false;
     const extra = wagerExtraSteps(dailyGoal(s), tier);
     this.patch({
@@ -152,7 +159,7 @@ class GameStore {
         dayKey: s.dayKey,
         status: 'active',
       },
-      wagerPlacedDay: s.dayKey,
+      wagersPlacedToday: s.wagersPlacedToday + 1,
     });
     return true;
   }
@@ -206,6 +213,38 @@ class GameStore {
   }
   setDebugUnlockEverything(on: boolean) {
     this.patch({ debugUnlockEverything: on });
+  }
+
+  // ── Royale Pro perks (all convenience/cosmetic — never earning power) ───────
+
+  /** Claim a streak freeze from the Pro stash (FREEZES_PER_MONTH per month). */
+  claimStreakFreeze(): boolean {
+    if (!this.isProUnlocked()) return false;
+    const s = this.state;
+    const month = s.dayKey.slice(0, 7);
+    const claimed = s.freezeStashMonth === month ? s.freezeStashClaimed : 0;
+    if (claimed >= FREEZES_PER_MONTH) return false;
+    this.patch({
+      freezeStashMonth: month,
+      freezeStashClaimed: claimed + 1,
+      streakFreezes: s.streakFreezes + 1,
+    });
+    return true;
+  }
+
+  /** Freezes still claimable from the stash this month. */
+  freezeStashRemaining(): number {
+    if (!this.isProUnlocked()) return 0;
+    const s = this.state;
+    const claimed = s.freezeStashMonth === s.dayKey.slice(0, 7) ? s.freezeStashClaimed : 0;
+    return FREEZES_PER_MONTH - claimed;
+  }
+
+  setProTheme(id: string) {
+    if (this.isProUnlocked() && THEMES.some((t) => t.id === id)) this.patch({ proTheme: id });
+  }
+  setFlexFrame(id: string) {
+    if (this.isProUnlocked() && FLEX_FRAMES.some((f) => f.id === id)) this.patch({ flexFrame: id });
   }
 
   // ── Debug helpers ─────────────────────────────────────────────────────────

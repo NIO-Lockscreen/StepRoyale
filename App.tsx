@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
+import { gameStore, useGame } from './game/store';
+import { THEMES, proTheme } from './game/pro';
 import { Home } from './components/Home';
 import { Empire } from './components/Empire';
 import { Showroom } from './components/Showroom';
@@ -18,12 +20,21 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 
 export function App() {
   const [tab, setTab] = useState<Tab>('home');
+  const s = useGame();
   // Prototype: the Debug tab (with "Unlock Everything") stays available so the deployed
   // Vercel build is fully testable on the live URL. Guard or remove before public launch.
   const tabs = TABS;
 
+  // Royale Pro theme: swap the accent variables app-wide. Non-Pro always gets gold.
+  const theme = gameStore.isProUnlocked() ? proTheme(s.proTheme) : THEMES[0];
+  const themeVars = {
+    '--gold': theme.accent,
+    '--gold-bright': theme.accentBright,
+    '--gold-deep': theme.accentDeep,
+  } as CSSProperties;
+
   return (
-    <div className="app">
+    <div className="app" style={themeVars}>
       <header className="topbar">
         <span className="brand-crown">👑</span>
         <span className="brand">STEP ROYALE</span>

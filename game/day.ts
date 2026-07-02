@@ -48,6 +48,7 @@ export function applyRollover(s: GameState, newKey: string): GameState {
     stepHistory,
     trailing7dMedian: median(stepHistory),
     wager,
+    wagersPlacedToday: 0,
     stepsYesterday: s.stepsToday,
     stepsToday: 0,
     coinsToday: 0,

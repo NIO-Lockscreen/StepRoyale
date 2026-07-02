@@ -47,10 +47,14 @@ export function Wager() {
     );
   }
 
-  if (s.wagerPlacedDay === s.dayKey) {
+  if (s.wagersPlacedToday >= gameStore.maxWagerSlots()) {
     return (
       <Card title="Daily wager">
-        <p className="fine no-top">Settled for today. A new wager opens at midnight.</p>
+        <p className="fine no-top">
+          {s.wagersPlacedToday > 1 ? 'Both wagers settled' : 'Settled'} for today — a new one
+          opens at midnight.
+          {!gameStore.isProUnlocked() && ' Royale Pro adds a second daily slot.'}
+        </p>
       </Card>
     );
   }
