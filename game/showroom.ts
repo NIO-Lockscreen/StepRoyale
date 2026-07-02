@@ -54,11 +54,3 @@ export function tierForNetWorth(netWorth: number): ShowroomTier {
   for (const t of TIER_ORDER) if (netWorth >= TIER_BANDS[t].min) current = t;
   return current;
 }
-
-/** The next still-locked item by ascending cost — the "shimmering at the edge" tease. */
-export function nextLockedItem(ownedIds: string[], coins: number): ShowroomItem | undefined {
-  return SHOWROOM_ITEMS
-    .filter((i) => !ownedIds.includes(i.id))
-    .sort((a, b) => a.cost - b.cost)
-    .find((i) => i.cost > coins) ?? SHOWROOM_ITEMS.find((i) => !ownedIds.includes(i.id));
-}

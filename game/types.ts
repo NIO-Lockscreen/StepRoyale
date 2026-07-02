@@ -49,6 +49,11 @@ export interface GameState {
 
   // Daily / streak
   stepsToday: number;
+  /** All steps ever credited — drives the Empire Level ladder (progression.ts). */
+  lifetimeSteps: number;
+  /** Coins earned since the last day rollover (steps + idle + bonuses) — the
+   *  "+X today" readout under net worth. */
+  coinsToday: number;
   stepsYesterday: number;
   trailing7dMedian: number;
   comboDays: number;

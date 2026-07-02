@@ -1,52 +1,78 @@
 import { useGame } from '../game/store';
 import {
-  capacity, combo, dailyGoal, goalProgress, idleRatePerHour,
-  invariantOk, netWorth, tier, walkRatePerHour,
+  currentGoals, dailyGoal, goalHit, goalProgress,
+  level, levelXp, netWorth, tier, walkRatePerHour,
 } from '../game/selectors';
-import { formatCoins, formatInt, formatPct } from '../game/format';
-import { Bar, Card, Stat } from './ui';
+import { formatCoins, formatInt } from '../game/format';
+import { Bar, Card, Ring } from './ui';
+import type { Tab } from '../App';
 
-export function Home() {
+export function Home({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
   const s = useGame();
   const goal = dailyGoal(s);
+  const hit = goalHit(s);
+  const xp = levelXp(s);
 
   return (
     <div className="view">
+      {/* Net worth hero — the concept art's headline stat. */}
       <div className="hero">
-        <div className="hero-coins">{formatCoins(s.coins)}</div>
-        <div className="hero-sub">coins · net worth {formatCoins(netWorth(s))} · {tier(s)}</div>
+        <div className="hero-label">Net Worth</div>
+        <div className="hero-worth">${formatCoins(netWorth(s))}</div>
+        <div className="hero-delta">▲ {formatCoins(s.coinsToday)} today · {tier(s)}</div>
       </div>
 
-      <Card title="Today">
-        <div className="goal-row">
-          <span>{formatInt(s.stepsToday)} / {formatInt(goal)} steps</span>
-          <span className="muted">{formatPct(goalProgress(s))}</span>
+      {/* The daily-goal ring. Turns gold with a GOAL HIT ribbon when smashed. */}
+      <div className="ring-stage">
+        <Ring progress={goalProgress(s)} done={hit}>
+          <span className="ring-crown">👑</span>
+          <span className="ring-steps">{formatInt(s.stepsToday)}</span>
+          <span className="ring-goal">goal {formatInt(goal)}</span>
+        </Ring>
+        {hit && <div className="ribbon">✓ GOAL HIT!</div>}
+      </div>
+
+      {/* Stat tiles: coins, streak, level. */}
+      <div className="tile-row">
+        <div className="tile">
+          <span className="tile-emoji">🪙</span>
+          <span className="tile-value gold-text">{formatCoins(s.coins)}</span>
+          <span className="tile-label">Royal Coins</span>
         </div>
-        <Bar progress={goalProgress(s)} />
-        <div className="stat-grid">
-          <Stat label="Combo" value={`×${combo(s).toFixed(1)}`} accent="gold" />
-          <Stat label="Streak" value={`${s.streakDays}d`} />
-          <Stat label="Freezes" value={s.streakFreezes} />
-          <Stat label="Empire capacity" value={formatPct(capacity(s))} accent={capacity(s) >= 1 ? 'green' : 'red'} />
+        <div className="tile">
+          <span className="tile-emoji">🔥</span>
+          <span className="tile-value">{s.streakDays}d</span>
+          <span className="tile-label">Streak · ❄️ {s.streakFreezes}</span>
+        </div>
+        <button className="tile tile-tap" onClick={() => onNavigate('empire')}>
+          <span className="tile-emoji">🛡️</span>
+          <span className="tile-value gold-text">{level(s)}</span>
+          <span className="tile-label">Empire Level</span>
+          <Bar gold progress={xp.into / xp.span} />
+        </button>
+      </div>
+
+      {/* The goal engine: there is ALWAYS a next move with visible progress. */}
+      <Card title="Your next moves">
+        <div className="list">
+          {currentGoals(s).map((g) => (
+            <button key={g.id} className={`goal ${g.done ? 'done' : ''}`} onClick={() => onNavigate(g.tab)}>
+              <span className="goal-emoji">{g.emoji}</span>
+              <span className="goal-main">
+                <span className="goal-title">{g.title}</span>
+                <span className="goal-detail">{g.detail}</span>
+                <Bar progress={g.progress} gold={g.done} />
+              </span>
+              <span className="goal-chevron">{g.done ? '✓' : '›'}</span>
+            </button>
+          ))}
         </div>
       </Card>
 
-      {/* The invariant, made visible. Walking always wins — by construction. */}
-      <Card title="Why walking wins">
-        <div className="stat-grid">
-          <Stat label="Walk / hr" value={formatCoins(walkRatePerHour(s))} accent="green" />
-          <Stat label="Idle / hr" value={formatCoins(idleRatePerHour(s))} />
-        </div>
-        <div className={`invariant ${invariantOk(s) ? 'ok' : 'bad'}`}>
-          {invariantOk(s)
-            ? '✓ Steps out-earn idle. Always.'
-            : '✗ INVARIANT BROKEN'}
-        </div>
-        <p className="fine">
-          Idle income is hard-clamped below what you'd earn walking that same hour. No
-          empire, upgrade, or event can ever make sitting still the better move.
-        </p>
-      </Card>
+      <p className="fine center">
+        Walking pays {formatCoins(walkRatePerHour(s))}/hr — always more than your idle
+        empire. Steps out-earn everything, by design.
+      </p>
     </div>
   );
 }

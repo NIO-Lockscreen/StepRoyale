@@ -10,9 +10,9 @@ export function Store() {
 
   return (
     <div className="view">
-      <Card title="STRIDE Pro">
+      <Card title="Royale Pro">
         {unlocked ? (
-          <div className="invariant ok">👑 STRIDE Pro unlocked</div>
+          <div className="invariant ok">👑 Royale Pro unlocked</div>
         ) : (
           <p className="fine">One-time unlock. No subscription. The game is fully playable without it.</p>
         )}
@@ -40,7 +40,7 @@ export function Store() {
               setBusy(false);
             }}
           >
-            Unlock STRIDE Pro · {IAP.displayPrice}
+            Unlock Royale Pro · {IAP.displayPrice}
           </Button>
         )}
         <Button variant="ghost" onClick={() => IAP.restore()}>Restore Purchases</Button>

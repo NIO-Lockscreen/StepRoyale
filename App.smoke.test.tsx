@@ -14,7 +14,7 @@ import { App } from './App';
  * the cheap proof that the deployed Vercel build will actually render.
  */
 describe('App renders', () => {
-  it('mounts the STRIDE shell without throwing', async () => {
+  it('mounts the STEP ROYALE shell without throwing', async () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const root = createRoot(container);
@@ -23,7 +23,7 @@ describe('App renders', () => {
       root.render(<App />);
     });
 
-    expect(container.textContent).toContain('STRIDE');
+    expect(container.textContent).toContain('STEP ROYALE');
 
     await act(async () => {
       root.unmount();

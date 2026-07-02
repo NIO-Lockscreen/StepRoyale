@@ -8,9 +8,10 @@ export function loadState(): GameState | null {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as GameState;
+    const parsed = JSON.parse(raw) as Partial<GameState>;
     if (parsed.version !== STATE_VERSION) return null; // simple migration gate
-    return parsed;
+    // Soft migration: fields added after a save was written get their defaults.
+    return { ...initialState(), ...parsed };
   } catch {
     return null;
   }
@@ -38,6 +39,8 @@ export function initialState(): GameState {
     upgradeMult: 1,
     eventMult: 1,
     stepsToday: 0,
+    lifetimeSteps: 0,
+    coinsToday: 0,
     stepsYesterday: 6000, // so the empire isn't at the 10% floor on a fresh install
     trailing7dMedian: 4000,
     comboDays: 0,

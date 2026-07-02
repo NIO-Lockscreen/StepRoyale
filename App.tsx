@@ -5,13 +5,13 @@ import { Showroom } from './components/Showroom';
 import { Store } from './components/Store';
 import { Debug } from './components/Debug';
 
-type Tab = 'home' | 'empire' | 'showroom' | 'store' | 'debug';
+export type Tab = 'home' | 'empire' | 'showroom' | 'store' | 'debug';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'home', label: 'Home', icon: '🏠' },
-  { id: 'empire', label: 'Empire', icon: '🏢' },
+  { id: 'empire', label: 'Empire', icon: '🏛️' },
   { id: 'showroom', label: 'Showroom', icon: '💎' },
-  { id: 'store', label: 'Pro', icon: '👑' },
+  { id: 'store', label: 'Royale', icon: '👑' },
   { id: 'debug', label: 'Debug', icon: '🐞' },
 ];
 
@@ -24,12 +24,13 @@ export function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <span className="brand">STRIDE</span>
-        <span className="tagline">get rich. one step at a time.</span>
+        <span className="brand-crown">👑</span>
+        <span className="brand">STEP ROYALE</span>
+        <span className="tagline">walk. earn. rule.</span>
       </header>
 
       <main className="content">
-        {tab === 'home' && <Home />}
+        {tab === 'home' && <Home onNavigate={setTab} />}
         {tab === 'empire' && <Empire />}
         {tab === 'showroom' && <Showroom />}
         {tab === 'store' && <Store />}

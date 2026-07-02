@@ -1,11 +1,18 @@
 import { gameStore, useGame } from '../game/store';
-import { SHOWROOM_ITEMS, TIER_BANDS, TIER_ORDER, nextLockedItem } from '../game/showroom';
+import { SHOWROOM_ITEMS, TIER_BANDS, TIER_ORDER } from '../game/showroom';
+import { TIER_UNLOCK_LEVEL, tierUnlocked } from '../game/progression';
+import { level } from '../game/selectors';
 import { formatCoins } from '../game/format';
 import { Card } from './ui';
 
 export function Showroom() {
   const s = useGame();
-  const tease = nextLockedItem(s.ownedItemIds, s.coins);
+  const lvl = level(s);
+
+  // The tease: cheapest unowned item in an unlocked tier — your next flex.
+  const tease = SHOWROOM_ITEMS
+    .filter((i) => !s.ownedItemIds.includes(i.id) && tierUnlocked(i.tier, lvl))
+    .sort((a, b) => a.cost - b.cost)[0];
 
   return (
     <div className="view">
@@ -21,17 +28,21 @@ export function Showroom() {
 
       {TIER_ORDER.map((t) => {
         const items = SHOWROOM_ITEMS.filter((i) => i.tier === t);
+        const tierOpen = tierUnlocked(t, lvl);
+        const title = tierOpen
+          ? `${t} — ${TIER_BANDS[t].blurb}`
+          : `🔒 ${t} — unlocks at Level ${TIER_UNLOCK_LEVEL[t]}`;
         return (
-          <Card key={t} title={`${t} — ${TIER_BANDS[t].blurb}`}>
-            <div className="list">
+          <Card key={t} title={title}>
+            <div className={`list ${tierOpen ? '' : 'list-locked'}`}>
               {items.map((item) => {
                 const owned = s.ownedItemIds.includes(item.id);
                 const affordable = s.coins >= item.cost;
                 return (
                   <button
                     key={item.id}
-                    className={`row ${owned ? 'owned' : ''}`}
-                    disabled={owned || !affordable}
+                    className={`row ${owned ? 'owned' : ''} ${tierOpen ? '' : 'locked'}`}
+                    disabled={!tierOpen || owned || !affordable}
                     onClick={() => gameStore.buyItem(item.id)}
                   >
                     <span className="row-emoji">{item.emoji}</span>
@@ -39,9 +50,11 @@ export function Showroom() {
                       <span className="row-name">
                         {item.name} {item.signature && <span className="badge">signature</span>}
                       </span>
-                      <span className="row-sub">{owned ? 'owned — pure flex' : 'status item'}</span>
+                      <span className="row-sub">
+                        {owned ? 'owned — pure flex' : tierOpen ? 'status item' : 'keep stepping to unlock'}
+                      </span>
                     </span>
-                    <span className={`row-cost ${affordable || owned ? '' : 'muted'}`}>
+                    <span className={`row-cost ${(affordable || owned) && tierOpen ? '' : 'muted'}`}>
                       {owned ? '✓' : formatCoins(item.cost)}
                     </span>
                   </button>

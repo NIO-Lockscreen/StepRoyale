@@ -4,6 +4,7 @@ import { initialState, loadState, saveState, todayKey } from './persistence';
 import { coinsForSteps } from './economy';
 import { nextCost, withPurchased } from './empire';
 import { SHOWROOM_ITEMS } from './showroom';
+import { assetUnlocked, levelForSteps, levelUpBonus, tierUnlocked } from './progression';
 import { dailyGoal, idleRatePerHour, mults } from './selectors';
 
 /** Convenience/cosmetic perks only — NEVER earning power (design doc §11/§14). */
@@ -59,7 +60,12 @@ class GameStore {
     // Idle income for the elapsed slice — ALWAYS the invariant-clamped rate.
     const idle = idleRatePerHour(s) * (elapsedMs / 3_600_000);
 
-    let next: GameState = { ...s, coins: s.coins + idle, lastTickMs: now };
+    let next: GameState = {
+      ...s,
+      coins: s.coins + idle,
+      coinsToday: s.coinsToday + idle,
+      lastTickMs: now,
+    };
 
     // Day rollover: bank the goal, advance/reset combo & streak.
     const key = todayKey(new Date(now));
@@ -87,24 +93,38 @@ class GameStore {
       streakFreezes,
       stepsYesterday: s.stepsToday,
       stepsToday: 0,
+      coinsToday: 0,
       dayKey: newKey,
     };
   }
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
-  /** Credit newly-reported steps (pushed by the StepProvider). The dopamine tick. */
+  /** Credit newly-reported steps (pushed by the StepProvider). The dopamine tick.
+   *  Also advances the Empire Level ladder and pays level-up bonuses. */
   ingestSteps(delta: number) {
     if (delta <= 0) return;
     const s = this.state;
+    const earned = coinsForSteps(delta, mults(s));
+    const lifetimeSteps = s.lifetimeSteps + delta;
+
+    // Level-up bonus for every level crossed in this batch.
+    const prevLevel = levelForSteps(s.lifetimeSteps);
+    const newLevel = levelForSteps(lifetimeSteps);
+    let bonus = 0;
+    for (let l = prevLevel + 1; l <= newLevel; l++) bonus += levelUpBonus(l);
+
     this.patch({
       stepsToday: s.stepsToday + delta,
-      coins: s.coins + coinsForSteps(delta, mults(s)),
+      lifetimeSteps,
+      coins: s.coins + earned + bonus,
+      coinsToday: s.coinsToday + earned + bonus,
     });
   }
 
   buyAsset(id: string): boolean {
     const s = this.state;
+    if (!assetUnlocked(id, levelForSteps(s.lifetimeSteps))) return false;
     const cost = nextCost(id, s.assets);
     if (s.coins < cost) return false;
     this.patch({ coins: s.coins - cost, assets: withPurchased(s.assets, id) });
@@ -115,6 +135,7 @@ class GameStore {
     const s = this.state;
     const item = SHOWROOM_ITEMS.find((i) => i.id === id);
     if (!item || s.ownedItemIds.includes(id) || s.coins < item.cost) return false;
+    if (!tierUnlocked(item.tier, levelForSteps(s.lifetimeSteps))) return false;
     this.patch({ coins: s.coins - item.cost, ownedItemIds: [...s.ownedItemIds, id] });
     return true;
   }
