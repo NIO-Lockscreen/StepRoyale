@@ -21,9 +21,9 @@ export function stepsForLevel(level: number): number {
 }
 
 export function levelForSteps(lifetimeSteps: number): number {
-  let lvl = 1;
-  while (lvl < MAX_LEVEL && lifetimeSteps >= stepsForLevel(lvl + 1)) lvl++;
-  return lvl;
+  if (lifetimeSteps <= 0) return 1;
+  // Inverse of stepsForLevel: largest l with 1500·(l−1)² ≤ steps.
+  return Math.min(MAX_LEVEL, Math.floor(Math.sqrt(lifetimeSteps / 1500)) + 1);
 }
 
 /** Coin bonus paid the moment a level is reached. */
@@ -71,6 +71,24 @@ export interface UpcomingUnlock {
   emoji: string;
   atLevel: number;
   kind: 'asset' | 'tier';
+}
+
+/** Everything that unlocks AT exactly `level` — feeds the level-up celebration. */
+export function unlocksAtLevel(level: number): UpcomingUnlock[] {
+  return [
+    ...ASSET_DEFS.filter((d) => (ASSET_UNLOCK_LEVEL[d.id] ?? 1) === level).map((d) => ({
+      name: d.name,
+      emoji: d.emoji,
+      atLevel: level,
+      kind: 'asset' as const,
+    })),
+    ...TIER_ORDER.filter((t) => TIER_UNLOCK_LEVEL[t] === level).map((t) => ({
+      name: `${t} Showroom`,
+      emoji: '💎',
+      atLevel: level,
+      kind: 'tier' as const,
+    })),
+  ];
 }
 
 /** The nearest thing still locked above `level` — what the next level-up is FOR. */

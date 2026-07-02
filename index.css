@@ -273,7 +273,85 @@ body {
 
 .fine { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 10px 0 0; }
 .fine.center { text-align: center; margin: 0 12px; }
+.fine.no-top { margin-top: 0; }
+.fine strong { color: var(--text); }
 .muted { color: var(--muted); }
+
+/* Wager chips */
+.chips { display: flex; gap: 8px; margin-top: 10px; }
+.chip {
+  flex: 1;
+  padding: 9px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  color: var(--text);
+  cursor: pointer;
+  text-align: center;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.chip.active {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: rgba(232, 193, 90, 0.08);
+}
+.chip-sub {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* Full-screen queued moments (level-up, away recap) */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 3, 2, 0.78);
+  backdrop-filter: blur(6px);
+  padding: 24px;
+}
+.overlay-card {
+  width: 100%;
+  max-width: 340px;
+  text-align: center;
+  background: linear-gradient(180deg, var(--card-2), var(--card));
+  border: 1px solid var(--gold-deep);
+  border-radius: 20px;
+  padding: 28px 22px 22px;
+  box-shadow: 0 0 60px rgba(232, 193, 90, 0.22);
+}
+.overlay-emoji { font-size: 52px; }
+.overlay-title {
+  font-family: var(--serif);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--gold);
+  margin: 8px 0 4px;
+}
+.overlay-sub { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 6px 0; }
+.overlay-payout {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--green);
+  margin: 6px 0;
+  font-variant-numeric: tabular-nums;
+}
+.overlay-unlocks { display: flex; flex-direction: column; gap: 6px; margin: 12px 0 4px; }
+.overlay-unlock {
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px dashed var(--gold-deep);
+  background: rgba(232, 193, 90, 0.07);
+  font-size: 14px;
+}
+.overlay-unlock strong { color: var(--gold); }
 
 /* Lists / rows */
 .list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }

@@ -94,6 +94,20 @@ export function currentGoals(s: GameState): Goal[] {
     tab: 'home',
   });
 
+  // 1b — The wager, when one is live. Measured from where it was placed.
+  if (s.wager?.status === 'active') {
+    const w = s.wager;
+    const span = Math.max(w.targetSteps - w.baseSteps, 1);
+    goals.push({
+      id: 'wager',
+      emoji: '🎲',
+      title: 'Win the daily wager',
+      detail: `${formatInt(Math.max(0, w.targetSteps - s.stepsToday))} steps to go · pays ${formatCoins(w.payout)}`,
+      progress: Math.min((s.stepsToday - w.baseSteps) / span, 1),
+      tab: 'home',
+    });
+  }
+
   // 2 — The ladder. Next Empire Level, framed by what it unlocks.
   const lvl = level(s);
   const unlock = nextUnlock(lvl);

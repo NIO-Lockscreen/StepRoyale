@@ -40,6 +40,12 @@ npm test        # run the invariant proof (steps always out-earn idle)
   (`game/progression.ts`). Every level unlocks an empire asset or a showroom tier, and
   the Home screen's goal engine always shows three live goals — today's step goal, the
   next level unlock, and the next flex.
+- **Live loops**: the daily goal adapts to your trailing 7-day median
+  (`game/day.ts`), streaks genuinely break on a miss (freezes protect them),
+  level-ups pop a celebration with what they unlocked, and returning after an
+  absence shows a "while you were away" earnings recap.
+- **Daily wager** (`game/wager.ts`): once a day, stake coins on walking extra
+  steps — measured from the moment you lock in — for a 1.5×/2×/3× payout.
 - **Freemium**: a one-time "Royale Pro" unlock (cosmetics/convenience only) in
   `game/iap.ts` / `components/Store.tsx`.
 - **"Unlock everything to test"**: `Debug → 🔓 Unlock Everything` opens every gate.

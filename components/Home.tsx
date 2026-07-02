@@ -5,6 +5,7 @@ import {
 } from '../game/selectors';
 import { formatCoins, formatInt } from '../game/format';
 import { Bar, Card, Ring } from './ui';
+import { Wager } from './Wager';
 import type { Tab } from '../App';
 
 export function Home({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
@@ -68,6 +69,8 @@ export function Home({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
           ))}
         </div>
       </Card>
+
+      <Wager />
 
       <p className="fine center">
         Walking pays {formatCoins(walkRatePerHour(s))}/hr — always more than your idle

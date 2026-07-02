@@ -4,6 +4,7 @@ import { Empire } from './components/Empire';
 import { Showroom } from './components/Showroom';
 import { Store } from './components/Store';
 import { Debug } from './components/Debug';
+import { Celebrations } from './components/Celebrations';
 
 export type Tab = 'home' | 'empire' | 'showroom' | 'store' | 'debug';
 
@@ -36,6 +37,8 @@ export function App() {
         {tab === 'store' && <Store />}
         {tab === 'debug' && <Debug />}
       </main>
+
+      <Celebrations />
 
       <nav className="tabbar">
         {tabs.map((t) => (

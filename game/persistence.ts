@@ -42,6 +42,7 @@ export function initialState(): GameState {
     lifetimeSteps: 0,
     coinsToday: 0,
     stepsYesterday: 6000, // so the empire isn't at the 10% floor on a fresh install
+    stepHistory: [4000], // seeds the adaptive-goal window, consistent with the median
     trailing7dMedian: 4000,
     comboDays: 0,
     streakDays: 0,
@@ -49,6 +50,10 @@ export function initialState(): GameState {
     dayKey: todayKey(),
     assets: [],
     ownedItemIds: [],
+    wager: null,
+    wagerPlacedDay: '',
+    pendingLevelUp: null,
+    awayRecap: null,
     lastTickMs: Date.now(),
     proUnlocked: false,
     debugUnlockEverything: false,
